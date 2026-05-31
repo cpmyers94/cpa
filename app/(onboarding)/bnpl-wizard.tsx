@@ -21,7 +21,7 @@ const PROVIDERS = [
 
 const PLAN_NAME_HINTS = ['Wedding venue', 'Golf clubs', 'New laptop', 'Furniture', 'Engagement ring'];
 
-type Step = 'intro' | 'provider' | 'details' | 'added' | 'saving';
+type Step = 'intro' | 'provider' | 'details' | 'added' | 'snowball' | 'saving';
 
 type PlanDraft = {
   provider: string;
@@ -50,7 +50,7 @@ function estimateTotal(balance: string, payment: string): string {
 
 // ── Sub-components ────────────────────────────────────────────────────
 function ProgressBar({ step }: { step: Step }) {
-  const steps: Step[] = ['intro', 'provider', 'details', 'added'];
+  const steps: Step[] = ['intro', 'provider', 'details', 'added', 'snowball'];
   const idx = steps.indexOf(step);
   const pct = idx < 0 ? 100 : Math.round(((idx + 1) / steps.length) * 100);
   return (
@@ -146,12 +146,23 @@ const fld = StyleSheet.create({
 });
 
 // ── Main Wizard ───────────────────────────────────────────────────────
+function suggestSnowball(income: number, bnplTotal: number): number {
+  // 15% of income, rounded to nearest $25, min $50
+  const raw = Math.max(50, (income * 0.15) - bnplTotal * 0.25);
+  return Math.round(raw / 25) * 25;
+}
+
+const QUICK_PICKS = [50, 100, 200, 300, 500];
+
 export default function BNPLWizard() {
   const { household } = useHousehold();
   const [step, setStep] = useState<Step>('intro');
   const [draft, setDraft] = useState<PlanDraft>(emptyDraft());
   const [plans, setPlans] = useState<PlanDraft[]>([]);
   const hintIdx = useRef(Math.floor(Math.random() * PLAN_NAME_HINTS.length));
+  const [income, setIncome] = useState('');
+  const [snowball, setSnowball] = useState(0);
+  const [snowballSet, setSnowballSet] = useState(false); // true once auto-suggested
 
   const upd = (k: keyof PlanDraft) => (v: any) => setDraft(d => ({ ...d, [k]: v }));
 
@@ -180,7 +191,26 @@ export default function BNPLWizard() {
     hintIdx.current = Math.floor(Math.random() * PLAN_NAME_HINTS.length);
   };
 
-  const finish = async () => {
+  const goToSnowball = () => setStep('snowball');
+
+  const onIncomeChange = (v: string) => {
+    setIncome(v);
+    // Auto-suggest once they type a valid income, but don't override manual changes
+    if (!snowballSet) {
+      const inc = parseFloat(v) || 0;
+      if (inc > 0) {
+        const bnplTotal = plans.reduce((a, p) => a + (parseFloat(p.payment) || 0), 0);
+        setSnowball(suggestSnowball(inc, bnplTotal));
+      }
+    }
+  };
+
+  const adjustSnowball = (delta: number) => {
+    setSnowballSet(true);
+    setSnowball(prev => Math.max(0, prev + delta));
+  };
+
+  const saveAll = async () => {
     if (!household) return;
     setStep('saving');
 
@@ -202,20 +232,19 @@ export default function BNPLWizard() {
       await supabase.from('bnpl_plans').insert(rows);
     }
 
+    const inc = parseFloat(income) || 0;
     await supabase.from('settings')
-      .update({ onboarding_done: true } as any)
+      .update({
+        onboarding_done: true,
+        ...(inc > 0 ? { income: inc } : {}),
+        ...(snowball > 0 ? { snowball_extra: snowball } : {}),
+      } as any)
       .eq('household_id', household.id);
 
     router.replace('/(tabs)/bills');
   };
 
-  const skip = async () => {
-    if (!household) { router.replace('/(tabs)/bills'); return; }
-    await supabase.from('settings')
-      .update({ onboarding_done: true } as any)
-      .eq('household_id', household.id);
-    router.replace('/(tabs)/bills');
-  };
+  const skip = () => goToSnowball();
 
   // ── Step: Saving ──
   if (step === 'saving') {
@@ -364,15 +393,107 @@ export default function BNPLWizard() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[s.primaryBtn, { backgroundColor: C.green, marginTop: 10 }]}
-            onPress={finish}
+            onPress={goToSnowball}
           >
-            <Text style={s.primaryBtnLabel}>Done — take me to my budget ✓</Text>
+            <Text style={s.primaryBtnLabel}>Done — set my snowball →</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.ghostBtn} onPress={skip}>
+          <TouchableOpacity style={s.ghostBtn} onPress={goToSnowball}>
             <Text style={s.ghostBtnLabel}>Skip remaining setup</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
+      {/* ── Step: Snowball ── */}
+      {step === 'snowball' && (() => {
+        const bnplTotal = plans.reduce((a, p) => a + (parseFloat(p.payment) || 0), 0);
+        const inc = parseFloat(income) || 0;
+        const available = inc > 0 ? Math.max(0, inc - bnplTotal) : 0;
+        return (
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView contentContainerStyle={s.addedScroll} keyboardShouldPersistTaps="handled">
+              <Text style={s.stepTag}>Almost done</Text>
+              <Text style={s.heading}>Set your snowball</Text>
+              <Text style={[s.sub, { textAlign: 'left', marginBottom: 24 }]}>
+                The snowball method throws extra money at your smallest debt first. Once it's gone, that payment rolls into the next one. Pick an amount you can commit to every month.
+              </Text>
+
+              {/* Income input */}
+              <Field
+                label="Monthly take-home income"
+                value={income}
+                onChange={onIncomeChange}
+                keyboardType="decimal-pad"
+                prefix="$"
+                placeholder="e.g. 5000"
+                autoFocus
+              />
+
+              {/* Math breakdown — only when income is entered */}
+              {inc > 0 && (
+                <View style={sb.breakdown}>
+                  <View style={sb.row}>
+                    <Text style={sb.rowLabel}>Monthly income</Text>
+                    <Text style={sb.rowValue}>${inc.toLocaleString()}</Text>
+                  </View>
+                  {bnplTotal > 0 && (
+                    <View style={sb.row}>
+                      <Text style={sb.rowLabel}>BNPL commitment ({plans.length} plan{plans.length !== 1 ? 's' : ''})</Text>
+                      <Text style={[sb.rowValue, { color: C.orange }]}>−${bnplTotal.toFixed(0)}</Text>
+                    </View>
+                  )}
+                  <View style={[sb.row, sb.totalRow]}>
+                    <Text style={[sb.rowLabel, { color: COLORS.text, fontWeight: '700' }]}>Available for snowball</Text>
+                    <Text style={[sb.rowValue, { color: C.green, fontWeight: '700' }]}>${available.toFixed(0)}</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Stepper */}
+              <Text style={fld.label}>Your snowball extra / month</Text>
+              <View style={sb.stepper}>
+                <TouchableOpacity style={sb.stepBtn} onPress={() => adjustSnowball(-25)}>
+                  <Text style={sb.stepBtnLabel}>−</Text>
+                </TouchableOpacity>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={sb.stepValue}>${snowball.toLocaleString()}</Text>
+                  <Text style={sb.stepSub}>/month</Text>
+                </View>
+                <TouchableOpacity style={sb.stepBtn} onPress={() => adjustSnowball(25)}>
+                  <Text style={sb.stepBtnLabel}>+</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Quick picks */}
+              <View style={sb.quickRow}>
+                {QUICK_PICKS.map(v => (
+                  <TouchableOpacity
+                    key={v}
+                    style={[sb.quickChip, snowball === v && { backgroundColor: C.amber, borderColor: C.amber }]}
+                    onPress={() => { setSnowball(v); setSnowballSet(true); }}
+                  >
+                    <Text style={[sb.quickLabel, snowball === v && { color: '#000' }]}>${v}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {inc > 0 && snowball > available && (
+                <View style={sb.warning}>
+                  <Text style={sb.warningText}>⚠️ That's more than your estimated available income. Start lower — you can always increase it later.</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[s.primaryBtn, { marginTop: 24 }]}
+                onPress={saveAll}
+              >
+                <Text style={s.primaryBtnLabel}>
+                  {snowball > 0 ? `Lock in $${snowball}/mo → Let's go` : 'Skip snowball for now →'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        );
+      })()}
+
     </SafeAreaView>
   );
 }
@@ -417,4 +538,41 @@ const toggle = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.bgTertiary, borderRadius: 12, padding: 14, marginBottom: 14 },
   label: { fontFamily: FONTS.mono, fontSize: 13, color: COLORS.text, fontWeight: '600', marginBottom: 2 },
   sub: { fontFamily: FONTS.mono, fontSize: 10, color: COLORS.textTertiary },
+});
+
+const sb = StyleSheet.create({
+  breakdown: {
+    backgroundColor: COLORS.bgTertiary, borderRadius: 12, padding: 14,
+    marginBottom: 20, gap: 8,
+  },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  totalRow: {
+    paddingTop: 8, marginTop: 4,
+    borderTopWidth: 0.5, borderTopColor: COLORS.border,
+  },
+  rowLabel: { fontFamily: FONTS.mono, fontSize: 12, color: COLORS.textSecondary },
+  rowValue: { fontFamily: FONTS.mono, fontSize: 13, fontWeight: '600', color: COLORS.text },
+  stepper: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.bgTertiary, borderRadius: 14, padding: 8,
+    marginBottom: 14, borderWidth: 1.5, borderColor: C.amberMid,
+  },
+  stepBtn: {
+    width: 48, height: 48, borderRadius: 10,
+    backgroundColor: C.amberDim, alignItems: 'center', justifyContent: 'center',
+  },
+  stepBtnLabel: { fontSize: 24, color: C.amber, fontWeight: '700', lineHeight: 28 },
+  stepValue: { fontFamily: FONTS.mono, fontSize: 32, fontWeight: '700', color: C.amber },
+  stepSub: { fontFamily: FONTS.mono, fontSize: 11, color: COLORS.textTertiary, marginTop: 2 },
+  quickRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 8 },
+  quickChip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.bgTertiary,
+  },
+  quickLabel: { fontFamily: FONTS.mono, fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
+  warning: {
+    backgroundColor: C.amberDim, borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: C.amberMid, marginTop: 8,
+  },
+  warningText: { fontFamily: FONTS.mono, fontSize: 11, color: C.amber, lineHeight: 18 },
 });
