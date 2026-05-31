@@ -25,6 +25,9 @@
         }
       ]
     ],
+    "web": {
+      "publicPath": "/cpa/"
+    },
     "extra": {
       "router": { "origin": false },
       "eas": { "projectId": "" }
