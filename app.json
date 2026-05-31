@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "CPA Finance",
+    "slug": "cpa",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "cpa",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.cpmyers94.cpa"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#f59e0b"
+      },
+      "package": "com.cpmyers94.cpa"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Allow CPA Finance to use Face ID for secure sign-in."
+        }
+      ]
+    ],
+    "extra": {
+      "router": { "origin": false },
+      "eas": { "projectId": "" }
+    }
+  }
+}
