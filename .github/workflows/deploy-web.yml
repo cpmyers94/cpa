@@ -1,0 +1,48 @@
+name: Deploy Web to GitHub Pages
+
+on:
+  push:
+    branches: [claude/finance-dashboard-review-nhsyP, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build web export
+        run: EXPO_NO_DOCTOR=1 EXPO_OFFLINE=1 npx expo export --platform web --output-dir dist
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://jwzhrjjcgmpjwqitxhgx.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3emhyampjZ21wandxaXR4aGd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyMjM2MzksImV4cCI6MjA5NTc5OTYzOX0.sdPxjWyLHiYrSSYhyKwZXjEXGJy0LRe5gblV4DXu84A
+
+      - uses: actions/configure-pages@v4
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
