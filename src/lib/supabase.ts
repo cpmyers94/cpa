@@ -32,7 +32,7 @@ export type Database = {
           id: string; household_id: string; income: number; schedule_type: string;
           semi_day1: number; semi_day2: number; bi_anchor: string | null;
           cust_weekdays: string[]; cust_freq: string; cust_anchor: string | null;
-          snowball_extra: number; bnpl_extra: number; updated_at: string;
+          snowball_extra: number; bnpl_extra: number; onboarding_done: boolean; updated_at: string;
         };
         Insert: Partial<Database['public']['Tables']['settings']['Row']>;
         Update: Partial<Database['public']['Tables']['settings']['Row']>;
