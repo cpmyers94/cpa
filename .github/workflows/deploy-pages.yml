@@ -2,7 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [claude/paycheck-planner-rebuild-7le3gl]
+    # github-pages environment protection only allows the default branch.
+    branches: [claude/finance-dashboard-review-nhsyP]
   workflow_dispatch:
 
 permissions:
