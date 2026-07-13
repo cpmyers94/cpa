@@ -1,30 +1,39 @@
-import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { SetupNotice } from "@/components/setup-notice";
-import { requireUser } from "@/lib/supabase/user";
+"use client";
+
+import { useCallback } from "react";
+import { useAuth } from "@/components/auth";
+import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
 import type { Debt } from "@/lib/supabase/types";
 import { DebtForm } from "./debt-form";
 import { DebtCard } from "./debt-card";
 
-export default async function DebtsPage() {
-  if (!isSupabaseConfigured()) return <SetupNotice />;
+export default function DebtsPage() {
+  const { supabase, user } = useAuth();
 
-  const { supabase, user } = await requireUser();
-  const { data: debts } = await supabase.from("debts").select("*").eq("user_id", user.id).order("created_at");
+  const load = useCallback(async () => {
+    const { data } = await supabase.from("debts").select("*").order("created_at");
+    return (data ?? []) as Debt[];
+  }, [supabase]);
 
-  const debtList = (debts ?? []) as Debt[];
-  const totalBalance = sum(debtList.map((d) => d.balance));
-  const totalMinimum = sum(debtList.map((d) => d.minimum_payment));
-  const avalancheOrder = [...debtList].sort((a, b) => b.interest_rate - a.interest_rate);
+  const { data: debts, refresh } = useAsyncData(user ? load : null);
+
+  if (!debts) {
+    return <p className="text-sm text-neutral-400">Loading…</p>;
+  }
+
+  const totalBalance = sum(debts.map((d) => d.balance));
+  const totalMinimum = sum(debts.map((d) => d.minimum_payment));
+  const avalancheOrder = [...debts].sort((a, b) => b.interest_rate - a.interest_rate);
 
   return (
     <div className="flex flex-col gap-6">
       <Card title="Add a debt">
-        <DebtForm />
+        <DebtForm onChanged={refresh} />
       </Card>
 
-      {debtList.length > 0 && (
+      {debts.length > 0 && (
         <Card title="Overview">
           <div className="flex flex-wrap gap-6 text-sm">
             <div>
@@ -37,16 +46,17 @@ export default async function DebtsPage() {
             </div>
           </div>
           <p className="mt-4 text-xs text-neutral-500">
-            Avalanche payoff order (highest interest rate first): {avalancheOrder.map((d) => d.name).join(" → ")}
+            Avalanche payoff order (highest interest rate first):{" "}
+            {avalancheOrder.map((d) => d.name).join(" → ")}
           </p>
         </Card>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {debtList.map((debt) => (
-          <DebtCard key={debt.id} debt={debt} />
+        {debts.map((debt) => (
+          <DebtCard key={debt.id} debt={debt} onChanged={refresh} />
         ))}
-        {debtList.length === 0 && <p className="text-sm text-neutral-500">No debts tracked yet.</p>}
+        {debts.length === 0 && <p className="text-sm text-neutral-500">No debts tracked yet.</p>}
       </div>
     </div>
   );

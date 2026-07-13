@@ -1,14 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { addIncomeSource } from "./actions";
+import { useAuth } from "@/components/auth";
 import { inputClass, buttonClass } from "@/components/card";
+import { addIncomeSource } from "./mutations";
 
-export function IncomeSourceForm() {
+export function IncomeSourceForm({ onChanged }: { onChanged: () => void }) {
+  const { supabase, user } = useAuth();
   const [frequency, setFrequency] = useState("biweekly");
 
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) return;
+    const form = event.currentTarget;
+    await addIncomeSource(supabase, user.id, new FormData(form));
+    form.reset();
+    onChanged();
+  }
+
   return (
-    <form action={addIncomeSource} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <input name="name" placeholder="Job name" required className={`${inputClass} col-span-2`} />
       <input
         name="gross_amount"

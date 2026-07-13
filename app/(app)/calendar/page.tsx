@@ -1,4 +1,6 @@
-import Link from "next/link";
+"use client";
+
+import { useCallback, useState } from "react";
 import {
   addMonths,
   endOfMonth,
@@ -9,9 +11,8 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { SetupNotice } from "@/components/setup-notice";
-import { requireUser } from "@/lib/supabase/user";
+import { useAuth } from "@/components/auth";
+import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency } from "@/lib/calc/money";
 import { getPaycheckOccurrences } from "@/lib/calc/schedule";
@@ -20,28 +21,31 @@ import type { Bill, IncomeSource } from "@/lib/supabase/types";
 
 type DayEvent = { label: string; amount: number; kind: "pay" | "bill" };
 
-export default async function CalendarPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string }>;
-}) {
-  if (!isSupabaseConfigured()) return <SetupNotice />;
+export default function CalendarPage() {
+  const { supabase, user } = useAuth();
+  const [monthStart, setMonthStart] = useState(() => startOfMonth(new Date()));
 
-  const { supabase, user } = await requireUser();
-  const { month } = await searchParams;
+  const load = useCallback(async () => {
+    const [sourcesRes, billsRes] = await Promise.all([
+      supabase.from("income_sources").select("*").eq("active", true),
+      supabase.from("bills").select("*").eq("active", true),
+    ]);
+    return {
+      sources: (sourcesRes.data ?? []) as IncomeSource[],
+      bills: (billsRes.data ?? []) as Bill[],
+    };
+  }, [supabase]);
 
-  const monthStart = startOfMonth(month ? new Date(`${month}-01`) : new Date());
+  const { data } = useAsyncData(user ? load : null);
+
+  if (!data) {
+    return <p className="text-sm text-neutral-400">Loading…</p>;
+  }
+  const { sources, bills } = data;
+
   const monthEnd = endOfMonth(monthStart);
   const gridStart = startOfWeek(monthStart);
   const gridEnd = endOfWeek(monthEnd);
-
-  const [{ data: incomeSources }, { data: bills }] = await Promise.all([
-    supabase.from("income_sources").select("*").eq("user_id", user.id).eq("active", true),
-    supabase.from("bills").select("*").eq("user_id", user.id).eq("active", true),
-  ]);
-
-  const sources = (incomeSources ?? []) as IncomeSource[];
-  const billList = (bills ?? []) as Bill[];
 
   const eventsByDay = new Map<string, DayEvent[]>();
   const pushEvent = (date: Date, event: DayEvent) => {
@@ -54,7 +58,7 @@ export default async function CalendarPage({
       pushEvent(date, { label: source.name, amount: source.gross_amount, kind: "pay" });
     }
   }
-  for (const bill of billList) {
+  for (const bill of bills) {
     for (const date of getBillOccurrences(bill, gridStart, gridEnd)) {
       pushEvent(date, { label: bill.name, amount: bill.amount, kind: "bill" });
     }
@@ -63,26 +67,32 @@ export default async function CalendarPage({
   const days: Date[] = [];
   for (let d = gridStart; d <= gridEnd; d = new Date(d.getTime() + 86400000)) days.push(d);
 
-  const prevMonth = format(addMonths(monthStart, -1), "yyyy-MM");
-  const nextMonth = format(addMonths(monthStart, 1), "yyyy-MM");
-
   return (
     <Card>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-base font-semibold">{format(monthStart, "MMMM yyyy")}</h2>
         <div className="flex gap-2 text-sm">
-          <Link href={`?month=${prevMonth}`} className="rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-700">
+          <button
+            onClick={() => setMonthStart(addMonths(monthStart, -1))}
+            className="rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-700"
+          >
             ← Prev
-          </Link>
-          <Link href={`?month=${nextMonth}`} className="rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-700">
+          </button>
+          <button
+            onClick={() => setMonthStart(addMonths(monthStart, 1))}
+            className="rounded-md border border-neutral-300 px-2 py-1 dark:border-neutral-700"
+          >
             Next →
-          </Link>
+          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-neutral-200 bg-neutral-200 text-xs dark:border-neutral-800 dark:bg-neutral-800">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-          <div key={d} className="bg-neutral-100 px-2 py-1 text-center font-medium text-neutral-500 dark:bg-neutral-900">
+          <div
+            key={d}
+            className="bg-neutral-100 px-2 py-1 text-center font-medium text-neutral-500 dark:bg-neutral-900"
+          >
             {d}
           </div>
         ))}
@@ -96,7 +106,13 @@ export default async function CalendarPage({
                 isSameMonth(day, monthStart) ? "" : "opacity-40"
               }`}
             >
-              <p className={`text-right text-[11px] ${isToday(day) ? "font-bold text-neutral-900 dark:text-white" : "text-neutral-400"}`}>
+              <p
+                className={`text-right text-[11px] ${
+                  isToday(day)
+                    ? "font-bold text-neutral-900 dark:text-white"
+                    : "text-neutral-400"
+                }`}
+              >
                 {format(day, "d")}
               </p>
               <div className="mt-1 flex flex-col gap-0.5">

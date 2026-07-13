@@ -1,14 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { addBill } from "./actions";
+import { useAuth } from "@/components/auth";
 import { inputClass, buttonClass } from "@/components/card";
+import { addBill } from "./mutations";
 
-export function BillForm() {
+export function BillForm({ onChanged }: { onChanged: () => void }) {
+  const { supabase, user } = useAuth();
   const [frequency, setFrequency] = useState("monthly");
 
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) return;
+    const form = event.currentTarget;
+    await addBill(supabase, user.id, new FormData(form));
+    form.reset();
+    setFrequency("monthly");
+    onChanged();
+  }
+
   return (
-    <form action={addBill} className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+    <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3 sm:grid-cols-5">
       <input name="name" placeholder="Bill name" required className={`${inputClass} col-span-2 sm:col-span-1`} />
       <input name="amount" type="number" step="0.01" min="0" placeholder="Amount" required className={inputClass} />
       <input name="category" placeholder="Category" defaultValue="other" className={inputClass} />

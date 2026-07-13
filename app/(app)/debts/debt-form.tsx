@@ -1,7 +1,8 @@
 "use client";
 
-import { addDebt } from "./actions";
+import { useAuth } from "@/components/auth";
 import { inputClass, buttonClass } from "@/components/card";
+import { addDebt } from "./mutations";
 
 const TYPES: { value: string; label: string }[] = [
   { value: "credit_card", label: "Credit card" },
@@ -13,9 +14,20 @@ const TYPES: { value: string; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
-export function DebtForm() {
+export function DebtForm({ onChanged }: { onChanged: () => void }) {
+  const { supabase, user } = useAuth();
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) return;
+    const form = event.currentTarget;
+    await addDebt(supabase, user.id, new FormData(form));
+    form.reset();
+    onChanged();
+  }
+
   return (
-    <form action={addDebt} className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+    <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3 sm:grid-cols-6">
       <input name="name" placeholder="Debt name" required className={`${inputClass} col-span-2 sm:col-span-1`} />
       <select name="type" defaultValue="credit_card" className={inputClass}>
         {TYPES.map((t) => (

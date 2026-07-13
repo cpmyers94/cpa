@@ -1,7 +1,8 @@
 "use client";
 
-import { allocateBill, unallocateBill } from "./actions";
+import { useAuth } from "@/components/auth";
 import { inputClass, ghostButtonClass } from "@/components/card";
+import { allocateBill, unallocateBill } from "./mutations";
 
 export type PaycheckOption = { incomeSourceId: string; incomeSourceName: string; date: string };
 
@@ -10,22 +11,32 @@ export function AllocationPicker({
   dueDate,
   options,
   current,
+  onChanged,
 }: {
   billId: string;
   dueDate: string;
   options: PaycheckOption[];
   current: { id: string; incomeSourceName: string; paycheckDate: string } | null;
+  onChanged: () => void;
 }) {
+  const { supabase, user } = useAuth();
+
   if (current) {
     return (
       <div className="flex items-center gap-2 text-xs text-neutral-500">
         <span>
-          Covered by {current.incomeSourceName} · {new Date(current.paycheckDate).toLocaleDateString()}
+          Covered by {current.incomeSourceName} ·{" "}
+          {new Date(current.paycheckDate).toLocaleDateString()}
         </span>
-        <form action={unallocateBill}>
-          <input type="hidden" name="id" value={current.id} />
-          <button className="text-red-500 hover:underline">clear</button>
-        </form>
+        <button
+          onClick={async () => {
+            await unallocateBill(supabase, current.id);
+            onChanged();
+          }}
+          className="text-red-500 hover:underline"
+        >
+          clear
+        </button>
       </div>
     );
   }
@@ -34,11 +45,19 @@ export function AllocationPicker({
     return <span className="text-xs text-neutral-400">No upcoming paycheck to assign</span>;
   }
 
+  async function handleAssign(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) return;
+    const formData = new FormData(event.currentTarget);
+    const [incomeSourceId, paycheckDate] = String(formData.get("paycheck")).split("|");
+    if (!incomeSourceId || !paycheckDate) return;
+    await allocateBill(supabase, user.id, billId, dueDate, incomeSourceId, paycheckDate);
+    onChanged();
+  }
+
   return (
-    <form action={allocateBill} className="flex items-center gap-2">
-      <input type="hidden" name="bill_id" value={billId} />
-      <input type="hidden" name="bill_due_date" value={dueDate} />
-      <select name="paycheck" className={`${inputClass} py-1 text-xs`} defaultValue="">
+    <form onSubmit={handleAssign} className="flex items-center gap-2">
+      <select name="paycheck" required className={`${inputClass} py-1 text-xs`} defaultValue="">
         <option value="" disabled>
           Assign to paycheck…
         </option>

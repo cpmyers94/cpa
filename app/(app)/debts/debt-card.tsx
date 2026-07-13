@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useAuth } from "@/components/auth";
 import { Card, inputClass, ghostButtonClass } from "@/components/card";
 import { formatCurrency, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
 import type { Debt } from "@/lib/supabase/types";
-import { addPayment, deleteDebt } from "./actions";
+import { addPayment, deleteDebt } from "./mutations";
 
 const TYPE_LABEL: Record<string, string> = {
   credit_card: "Credit card",
@@ -16,11 +17,29 @@ const TYPE_LABEL: Record<string, string> = {
   other: "Other",
 };
 
-export function DebtCard({ debt }: { debt: Debt }) {
+export function DebtCard({ debt, onChanged }: { debt: Debt; onChanged: () => void }) {
+  const { supabase, user } = useAuth();
   const [payment, setPayment] = useState(debt.minimum_payment || 0);
 
-  const months = useMemo(() => monthsToPayoff(debt.balance, debt.interest_rate, payment), [debt, payment]);
-  const interest = useMemo(() => totalInterestPaid(debt.balance, debt.interest_rate, payment), [debt, payment]);
+  const months = useMemo(
+    () => monthsToPayoff(debt.balance, debt.interest_rate, payment),
+    [debt, payment]
+  );
+  const interest = useMemo(
+    () => totalInterestPaid(debt.balance, debt.interest_rate, payment),
+    [debt, payment]
+  );
+
+  async function handlePayment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) return;
+    const form = event.currentTarget;
+    const amount = Number(new FormData(form).get("amount"));
+    if (!amount) return;
+    await addPayment(supabase, user.id, debt.id, debt.balance, amount);
+    form.reset();
+    onChanged();
+  }
 
   return (
     <Card>
@@ -56,17 +75,31 @@ export function DebtCard({ debt }: { debt: Debt }) {
         </p>
       </div>
 
-      <form action={addPayment} className="mt-3 flex gap-2">
-        <input type="hidden" name="debt_id" value={debt.id} />
-        <input name="amount" type="number" step="0.01" min="0.01" placeholder="Log a payment" required className={`${inputClass} flex-1 text-sm`} />
+      <form onSubmit={handlePayment} className="mt-3 flex gap-2">
+        <input
+          name="amount"
+          type="number"
+          step="0.01"
+          min="0.01"
+          placeholder="Log a payment"
+          required
+          className={`${inputClass} flex-1 text-sm`}
+        />
         <button type="submit" className={`${ghostButtonClass} text-xs`}>
           Log payment
         </button>
       </form>
-      <form action={deleteDebt} className="mt-2 text-right">
-        <input type="hidden" name="id" value={debt.id} />
-        <button className="text-xs text-red-500 hover:underline">delete</button>
-      </form>
+      <div className="mt-2 text-right">
+        <button
+          onClick={async () => {
+            await deleteDebt(supabase, debt.id);
+            onChanged();
+          }}
+          className="text-xs text-red-500 hover:underline"
+        >
+          delete
+        </button>
+      </div>
     </Card>
   );
 }

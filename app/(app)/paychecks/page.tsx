@@ -1,13 +1,15 @@
-import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { SetupNotice } from "@/components/setup-notice";
-import { requireUser } from "@/lib/supabase/user";
+"use client";
+
+import { useCallback } from "react";
+import { useAuth } from "@/components/auth";
+import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
 import { nextPaycheckDate } from "@/lib/calc/schedule";
 import type { IncomeSource, PaycheckDeduction } from "@/lib/supabase/types";
 import { IncomeSourceForm } from "./income-source-form";
 import { Deductions } from "./deductions";
-import { deleteIncomeSource } from "./actions";
+import { deleteIncomeSource } from "./mutations";
 
 const FREQUENCY_LABEL: Record<string, string> = {
   weekly: "Weekly",
@@ -16,26 +18,39 @@ const FREQUENCY_LABEL: Record<string, string> = {
   monthly: "Monthly",
 };
 
-export default async function PaychecksPage() {
-  if (!isSupabaseConfigured()) return <SetupNotice />;
+export default function PaychecksPage() {
+  const { supabase, user } = useAuth();
 
-  const { supabase, user } = await requireUser();
+  const load = useCallback(async () => {
+    const [sourcesRes, deductionsRes] = await Promise.all([
+      supabase.from("income_sources").select("*").order("created_at"),
+      supabase.from("paycheck_deductions").select("*"),
+    ]);
+    return {
+      sources: (sourcesRes.data ?? []) as IncomeSource[],
+      deductions: (deductionsRes.data ?? []) as PaycheckDeduction[],
+    };
+  }, [supabase]);
 
-  const [{ data: incomeSources }, { data: deductions }] = await Promise.all([
-    supabase.from("income_sources").select("*").eq("user_id", user.id).order("created_at"),
-    supabase.from("paycheck_deductions").select("*").eq("user_id", user.id),
-  ]);
+  const { data, refresh } = useAsyncData(user ? load : null);
 
-  const sources = (incomeSources ?? []) as IncomeSource[];
+  if (!data) {
+    return <p className="text-sm text-neutral-400">Loading…</p>;
+  }
+  const { sources, deductions } = data;
+
   const deductionsBySource = new Map<string, PaycheckDeduction[]>();
-  for (const d of (deductions ?? []) as PaycheckDeduction[]) {
-    deductionsBySource.set(d.income_source_id, [...(deductionsBySource.get(d.income_source_id) ?? []), d]);
+  for (const d of deductions) {
+    deductionsBySource.set(d.income_source_id, [
+      ...(deductionsBySource.get(d.income_source_id) ?? []),
+      d,
+    ]);
   }
 
   return (
     <div className="flex flex-col gap-6">
       <Card title="Add an income source">
-        <IncomeSourceForm />
+        <IncomeSourceForm onChanged={refresh} />
       </Card>
 
       <div className="flex flex-col gap-4">
@@ -56,14 +71,27 @@ export default async function PaychecksPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-lg font-semibold">{formatCurrency(net)}</p>
-                  <p className="text-xs text-neutral-500">of {formatCurrency(source.gross_amount)} gross</p>
+                  <p className="text-xs text-neutral-500">
+                    of {formatCurrency(source.gross_amount)} gross
+                  </p>
                 </div>
               </div>
-              <Deductions incomeSourceId={source.id} deductions={sourceDeductions} />
-              <form action={deleteIncomeSource} className="mt-3 text-right">
-                <input type="hidden" name="id" value={source.id} />
-                <button className="text-xs text-red-500 hover:underline">Delete income source</button>
-              </form>
+              <Deductions
+                incomeSourceId={source.id}
+                deductions={sourceDeductions}
+                onChanged={refresh}
+              />
+              <div className="mt-3 text-right">
+                <button
+                  onClick={async () => {
+                    await deleteIncomeSource(supabase, source.id);
+                    refresh();
+                  }}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  Delete income source
+                </button>
+              </div>
             </Card>
           );
         })}

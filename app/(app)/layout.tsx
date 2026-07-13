@@ -1,35 +1,55 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { createClient } from "@/lib/supabase/server";
-import { signOut } from "@/app/login/actions";
+import { SetupNotice } from "@/components/setup-notice";
+import { AuthProvider, RequireAuth, useAuth } from "@/components/auth";
 import { Nav } from "./nav";
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  let email: string | null = null;
-  if (isSupabaseConfigured()) {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    email = user?.email ?? null;
+function Header() {
+  const { supabase, user } = useAuth();
+  const router = useRouter();
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    router.replace("/login");
   }
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      <Nav />
-      <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-4 dark:border-neutral-800">
-          <h1 className="text-lg font-semibold tracking-tight">Paycheck Planner</h1>
-          {email && (
-            <form action={signOut} className="flex items-center gap-3 text-sm text-neutral-500">
-              <span>{email}</span>
-              <button type="submit" className="underline underline-offset-2">
-                Sign out
-              </button>
-            </form>
-          )}
-        </header>
-        <main className="flex-1 px-6 py-6">{children}</main>
+    <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-4 dark:border-neutral-800">
+      <h1 className="text-lg font-semibold tracking-tight">Paycheck Planner</h1>
+      {user?.email && (
+        <div className="flex items-center gap-3 text-sm text-neutral-500">
+          <span>{user.email}</span>
+          <button onClick={signOut} className="underline underline-offset-2">
+            Sign out
+          </button>
+        </div>
+      )}
+    </header>
+  );
+}
+
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  if (!isSupabaseConfigured()) {
+    return (
+      <div className="mx-auto w-full max-w-2xl px-4 py-12">
+        <SetupNotice />
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <AuthProvider>
+      <div className="flex min-h-screen flex-col md:flex-row">
+        <Nav />
+        <div className="flex flex-1 flex-col">
+          <Header />
+          <main className="flex flex-1 flex-col px-6 py-6">
+            <RequireAuth>{children}</RequireAuth>
+          </main>
+        </div>
+      </div>
+    </AuthProvider>
   );
 }
