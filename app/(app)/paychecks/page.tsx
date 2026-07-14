@@ -19,7 +19,8 @@ const FREQUENCY_LABEL: Record<string, string> = {
 };
 
 export default function PaychecksPage() {
-  const { supabase, user } = useAuth();
+  const { supabase, user, members, canEdit, nameFor } = useAuth();
+  const isShared = members.length > 1;
 
   const load = useCallback(async () => {
     const [sourcesRes, deductionsRes] = await Promise.all([
@@ -63,7 +64,14 @@ export default function PaychecksPage() {
             <Card key={source.id}>
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="font-semibold">{source.name}</h3>
+                  <h3 className="font-semibold">
+                    {source.name}
+                    {isShared && (
+                      <span className="ml-2 text-xs font-normal text-neutral-400">
+                        {nameFor(source.user_id)}
+                      </span>
+                    )}
+                  </h3>
                   <p className="text-xs text-neutral-500">
                     {FREQUENCY_LABEL[source.frequency]}
                     {next && ` · next paycheck ${next.toLocaleDateString()}`}
@@ -79,19 +87,22 @@ export default function PaychecksPage() {
               <Deductions
                 incomeSourceId={source.id}
                 deductions={sourceDeductions}
+                editable={canEdit(source.user_id)}
                 onChanged={refresh}
               />
-              <div className="mt-3 text-right">
-                <button
-                  onClick={async () => {
-                    await deleteIncomeSource(supabase, source.id);
-                    refresh();
-                  }}
-                  className="text-xs text-red-500 hover:underline"
-                >
-                  Delete income source
-                </button>
-              </div>
+              {canEdit(source.user_id) && (
+                <div className="mt-3 text-right">
+                  <button
+                    onClick={async () => {
+                      await deleteIncomeSource(supabase, source.id);
+                      refresh();
+                    }}
+                    className="text-xs text-red-500 hover:underline"
+                  >
+                    Delete income source
+                  </button>
+                </div>
+              )}
             </Card>
           );
         })}

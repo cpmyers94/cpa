@@ -21,6 +21,12 @@ only ever sees its own data.
 - **Goals** — savings goals with progress bars and contribution logging.
 - **Debts** — track balances/APR/minimum payments with a payoff calculator
   (months to payoff, total interest) and a suggested avalanche payoff order.
+- **Households** — share one consolidated budget across multiple accounts.
+  Each person signs in with their own login; an invite code links them into a
+  household, and everyone sees a combined view of all paychecks, bills, goals,
+  and debts. An owner-controlled toggle decides whether everyone can edit
+  everything or each person edits only their own entries. Entries stay tagged
+  with who added them, and leaving a household takes your own entries with you.
 
 ## Local development
 
@@ -57,20 +63,33 @@ secrecy.
 
 ## Database
 
-The schema lives in
-[`supabase/migrations/0001_init.sql`](./supabase/migrations/0001_init.sql):
-8 tables (income sources, deductions, bills, bill allocations, savings goals,
-goal contributions, debts, debt payments), each with RLS policies scoping
-every row to the signed-in user (`auth.uid()`). To recreate the backend on a
-fresh Supabase project, run that file in the SQL editor and update the keys.
+The schema lives in `supabase/migrations/`. Run the files in order against a
+fresh Supabase project (SQL editor or `supabase db push`) and update the keys.
+
+- `0001_init.sql` — the 8 data tables (income sources, deductions, bills, bill
+  allocations, savings goals, goal contributions, debts, debt payments).
+- `0002_households.sql` — households, membership, and profiles; adds a
+  `household_id` to every data table; and replaces the per-user RLS with
+  household-scoped policies. Reads are scoped to your household; writes are
+  gated by authorship or the household's owner-controlled `shared_editing`
+  flag. Includes RPCs for joining/leaving a household and rotating the invite
+  code, all `SECURITY DEFINER`.
+- `0003_new_user_household.sql` — a trigger that gives every new signup a
+  personal household automatically.
+
+Every row carries a `user_id` (the author) and a `household_id` (the shared
+budget it belongs to); visibility follows the household, and joining/leaving
+moves your authored rows with you.
 
 ## Project structure
 
 - `app/(app)/` — the authenticated pages (dashboard, paychecks, bills,
-  calendar, goals, debts) behind a shared nav shell and client-side auth
-  guard.
+  calendar, goals, debts, household) behind a shared nav shell and client-side
+  auth guard.
 - `app/login/` — sign in / sign up.
-- `components/auth.tsx` — auth context + route guard.
+- `components/auth.tsx` — auth context (user + household + members), route
+  guard, and the `canEdit` / `nameFor` helpers used for permissions and
+  attribution.
 - `lib/calc/` — pure functions for pay-schedule generation, bill occurrence
   generation, and money math (net pay, payoff calculators).
 - `lib/supabase/` — browser Supabase client and shared row types.

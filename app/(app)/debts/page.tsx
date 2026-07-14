@@ -10,7 +10,7 @@ import { DebtForm } from "./debt-form";
 import { DebtCard } from "./debt-card";
 
 export default function DebtsPage() {
-  const { supabase, user } = useAuth();
+  const { supabase, user, canEdit } = useAuth();
 
   const load = useCallback(async () => {
     const { data } = await supabase.from("debts").select("*").order("created_at");
@@ -54,7 +54,7 @@ export default function DebtsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         {debts.map((debt) => (
-          <DebtCard key={debt.id} debt={debt} onChanged={refresh} />
+          <DebtCard key={debt.id} debt={debt} editable={canEdit(debt.user_id)} onChanged={refresh} />
         ))}
         {debts.length === 0 && <p className="text-sm text-neutral-500">No debts tracked yet.</p>}
       </div>

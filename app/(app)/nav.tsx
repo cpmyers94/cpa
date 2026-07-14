@@ -9,6 +9,7 @@ import {
   CalendarDays,
   PiggyBank,
   CreditCard,
+  Users,
 } from "lucide-react";
 
 const links = [
@@ -18,6 +19,7 @@ const links = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/goals", label: "Goals", icon: PiggyBank },
   { href: "/debts", label: "Debts", icon: CreditCard },
+  { href: "/household", label: "Household", icon: Users },
 ];
 
 export function Nav() {

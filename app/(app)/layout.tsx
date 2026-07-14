@@ -7,7 +7,7 @@ import { AuthProvider, RequireAuth, useAuth } from "@/components/auth";
 import { Nav } from "./nav";
 
 function Header() {
-  const { supabase, user } = useAuth();
+  const { supabase, user, household, members } = useAuth();
   const router = useRouter();
 
   async function signOut() {
@@ -17,7 +17,14 @@ function Header() {
 
   return (
     <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-4 dark:border-neutral-800">
-      <h1 className="text-lg font-semibold tracking-tight">Paycheck Planner</h1>
+      <div>
+        <h1 className="text-lg font-semibold tracking-tight">Paycheck Planner</h1>
+        {household && members.length > 1 && (
+          <p className="text-xs text-neutral-500">
+            {household.name} · {members.length} members
+          </p>
+        )}
+      </div>
       {user?.email && (
         <div className="flex items-center gap-3 text-sm text-neutral-500">
           <span>{user.email}</span>

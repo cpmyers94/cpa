@@ -9,10 +9,12 @@ import { addDeduction, deleteDeduction } from "./mutations";
 export function Deductions({
   incomeSourceId,
   deductions,
+  editable,
   onChanged,
 }: {
   incomeSourceId: string;
   deductions: PaycheckDeduction[];
+  editable: boolean;
   onChanged: () => void;
 }) {
   const { supabase, user } = useAuth();
@@ -39,20 +41,23 @@ export function Deductions({
             </span>
             <span className="flex items-center gap-2">
               -{formatCurrency(d.amount)}
-              <button
-                onClick={async () => {
-                  await deleteDeduction(supabase, d.id);
-                  onChanged();
-                }}
-                className="text-xs text-red-500 hover:underline"
-              >
-                remove
-              </button>
+              {editable && (
+                <button
+                  onClick={async () => {
+                    await deleteDeduction(supabase, d.id);
+                    onChanged();
+                  }}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  remove
+                </button>
+              )}
             </span>
           </li>
         ))}
         {deductions.length === 0 && <li className="text-neutral-400">No deductions yet.</li>}
       </ul>
+      {!editable ? null : (
       <form onSubmit={handleAdd} className="mt-2 flex flex-wrap gap-2">
         <input name="label" placeholder="Label (e.g. Federal tax)" required className={`${inputClass} flex-1`} />
         <select name="kind" defaultValue="tax" className={inputClass}>
@@ -65,6 +70,7 @@ export function Deductions({
           Add
         </button>
       </form>
+      )}
     </div>
   );
 }

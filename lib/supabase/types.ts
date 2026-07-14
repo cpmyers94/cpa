@@ -10,9 +10,13 @@ export type DebtType =
   | "medical"
   | "other";
 
-export interface IncomeSource {
-  id: string;
+interface Owned {
   user_id: string;
+  household_id: string | null;
+}
+
+export interface IncomeSource extends Owned {
+  id: string;
   name: string;
   gross_amount: number;
   frequency: PayFrequency;
@@ -23,9 +27,8 @@ export interface IncomeSource {
   created_at: string;
 }
 
-export interface PaycheckDeduction {
+export interface PaycheckDeduction extends Owned {
   id: string;
-  user_id: string;
   income_source_id: string;
   label: string;
   kind: DeductionKind;
@@ -33,9 +36,8 @@ export interface PaycheckDeduction {
   created_at: string;
 }
 
-export interface Bill {
+export interface Bill extends Owned {
   id: string;
-  user_id: string;
   name: string;
   amount: number;
   category: string;
@@ -47,9 +49,8 @@ export interface Bill {
   created_at: string;
 }
 
-export interface BillAllocation {
+export interface BillAllocation extends Owned {
   id: string;
-  user_id: string;
   bill_id: string;
   income_source_id: string;
   paycheck_date: string;
@@ -57,9 +58,8 @@ export interface BillAllocation {
   created_at: string;
 }
 
-export interface SavingsGoal {
+export interface SavingsGoal extends Owned {
   id: string;
-  user_id: string;
   name: string;
   target_amount: number;
   current_amount: number;
@@ -68,9 +68,8 @@ export interface SavingsGoal {
   created_at: string;
 }
 
-export interface GoalContribution {
+export interface GoalContribution extends Owned {
   id: string;
-  user_id: string;
   goal_id: string;
   amount: number;
   contributed_on: string;
@@ -78,9 +77,8 @@ export interface GoalContribution {
   created_at: string;
 }
 
-export interface Debt {
+export interface Debt extends Owned {
   id: string;
-  user_id: string;
   name: string;
   type: DebtType;
   balance: number;
@@ -90,9 +88,8 @@ export interface Debt {
   created_at: string;
 }
 
-export interface DebtPayment {
+export interface DebtPayment extends Owned {
   id: string;
-  user_id: string;
   debt_id: string;
   amount: number;
   paid_on: string;
@@ -100,3 +97,18 @@ export interface DebtPayment {
   created_at: string;
 }
 
+export interface Household {
+  id: string;
+  name: string;
+  invite_code: string;
+  shared_editing: boolean;
+  created_at: string;
+}
+
+export interface HouseholdMember {
+  user_id: string;
+  role: "owner" | "member";
+  display_name: string;
+  email: string | null;
+  isSelf: boolean;
+}

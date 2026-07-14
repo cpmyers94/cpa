@@ -58,7 +58,8 @@ function ContributionForm({
 }
 
 export default function GoalsPage() {
-  const { supabase, user } = useAuth();
+  const { supabase, user, members, canEdit, nameFor } = useAuth();
+  const isShared = members.length > 1;
 
   const load = useCallback(async () => {
     const { data } = await supabase.from("savings_goals").select("*").order("created_at");
@@ -88,16 +89,25 @@ export default function GoalsPage() {
           return (
             <Card key={goal.id}>
               <div className="flex items-start justify-between">
-                <h3 className="font-semibold">{goal.name}</h3>
-                <button
-                  onClick={async () => {
-                    await deleteGoal(supabase, goal.id);
-                    refresh();
-                  }}
-                  className="text-xs text-red-500 hover:underline"
-                >
-                  delete
-                </button>
+                <h3 className="font-semibold">
+                  {goal.name}
+                  {isShared && (
+                    <span className="ml-2 text-xs font-normal text-neutral-400">
+                      {nameFor(goal.user_id)}
+                    </span>
+                  )}
+                </h3>
+                {canEdit(goal.user_id) && (
+                  <button
+                    onClick={async () => {
+                      await deleteGoal(supabase, goal.id);
+                      refresh();
+                    }}
+                    className="text-xs text-red-500 hover:underline"
+                  >
+                    delete
+                  </button>
+                )}
               </div>
               <p className="mt-1 text-sm text-neutral-500">
                 {formatCurrency(goal.current_amount)} of {formatCurrency(goal.target_amount)}
@@ -113,7 +123,7 @@ export default function GoalsPage() {
                   !neededPerMonth &&
                   ` · planned ${formatCurrency(goal.monthly_contribution)}/mo`}
               </p>
-              <ContributionForm goal={goal} onChanged={refresh} />
+              {canEdit(goal.user_id) && <ContributionForm goal={goal} onChanged={refresh} />}
             </Card>
           );
         })}

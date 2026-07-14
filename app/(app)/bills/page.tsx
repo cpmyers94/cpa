@@ -16,7 +16,8 @@ import { AllocationPicker, type PaycheckOption } from "./allocation-picker";
 const WINDOW_DAYS = 60;
 
 export default function BillsPage() {
-  const { supabase, user } = useAuth();
+  const { supabase, user, members, canEdit, nameFor } = useAuth();
+  const isShared = members.length > 1;
 
   const load = useCallback(async () => {
     const [billsRes, sourcesRes, allocationsRes] = await Promise.all([
@@ -119,16 +120,21 @@ export default function BillsPage() {
             <li key={bill.id} className="flex items-center justify-between py-2 text-sm">
               <span>
                 {bill.name} · {formatCurrency(bill.amount)} · {bill.frequency.replace("_", " ")}
+                {isShared && (
+                  <span className="ml-2 text-xs text-neutral-400">added by {nameFor(bill.user_id)}</span>
+                )}
               </span>
-              <button
-                onClick={async () => {
-                  await deleteBill(supabase, bill.id);
-                  refresh();
-                }}
-                className="text-xs text-red-500 hover:underline"
-              >
-                delete
-              </button>
+              {canEdit(bill.user_id) && (
+                <button
+                  onClick={async () => {
+                    await deleteBill(supabase, bill.id);
+                    refresh();
+                  }}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  delete
+                </button>
+              )}
             </li>
           ))}
           {bills.length === 0 && <li className="py-2 text-sm text-neutral-500">No bills yet.</li>}

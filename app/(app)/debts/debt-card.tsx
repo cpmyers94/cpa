@@ -17,8 +17,17 @@ const TYPE_LABEL: Record<string, string> = {
   other: "Other",
 };
 
-export function DebtCard({ debt, onChanged }: { debt: Debt; onChanged: () => void }) {
-  const { supabase, user } = useAuth();
+export function DebtCard({
+  debt,
+  editable,
+  onChanged,
+}: {
+  debt: Debt;
+  editable: boolean;
+  onChanged: () => void;
+}) {
+  const { supabase, user, members, nameFor } = useAuth();
+  const isShared = members.length > 1;
   const [payment, setPayment] = useState(debt.minimum_payment || 0);
 
   const months = useMemo(
@@ -45,7 +54,14 @@ export function DebtCard({ debt, onChanged }: { debt: Debt; onChanged: () => voi
     <Card>
       <div className="flex items-start justify-between">
         <div>
-          <h3 className="font-semibold">{debt.name}</h3>
+          <h3 className="font-semibold">
+            {debt.name}
+            {isShared && (
+              <span className="ml-2 text-xs font-normal text-neutral-400">
+                {nameFor(debt.user_id)}
+              </span>
+            )}
+          </h3>
           <p className="text-xs text-neutral-500">
             {TYPE_LABEL[debt.type]} · {debt.interest_rate}% APR
           </p>
@@ -75,31 +91,35 @@ export function DebtCard({ debt, onChanged }: { debt: Debt; onChanged: () => voi
         </p>
       </div>
 
-      <form onSubmit={handlePayment} className="mt-3 flex gap-2">
-        <input
-          name="amount"
-          type="number"
-          step="0.01"
-          min="0.01"
-          placeholder="Log a payment"
-          required
-          className={`${inputClass} flex-1 text-sm`}
-        />
-        <button type="submit" className={`${ghostButtonClass} text-xs`}>
-          Log payment
-        </button>
-      </form>
-      <div className="mt-2 text-right">
-        <button
-          onClick={async () => {
-            await deleteDebt(supabase, debt.id);
-            onChanged();
-          }}
-          className="text-xs text-red-500 hover:underline"
-        >
-          delete
-        </button>
-      </div>
+      {editable && (
+        <form onSubmit={handlePayment} className="mt-3 flex gap-2">
+          <input
+            name="amount"
+            type="number"
+            step="0.01"
+            min="0.01"
+            placeholder="Log a payment"
+            required
+            className={`${inputClass} flex-1 text-sm`}
+          />
+          <button type="submit" className={`${ghostButtonClass} text-xs`}>
+            Log payment
+          </button>
+        </form>
+      )}
+      {editable && (
+        <div className="mt-2 text-right">
+          <button
+            onClick={async () => {
+              await deleteDebt(supabase, debt.id);
+              onChanged();
+            }}
+            className="text-xs text-red-500 hover:underline"
+          >
+            delete
+          </button>
+        </div>
+      )}
     </Card>
   );
 }
