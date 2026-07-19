@@ -1,16 +1,17 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { addDays } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
-import { Card } from "@/components/card";
+import { Card, ghostButtonClass } from "@/components/card";
 import { formatCurrency } from "@/lib/calc/money";
 import { getBillOccurrences } from "@/lib/calc/bills";
 import { getPaycheckOccurrences } from "@/lib/calc/schedule";
+import { pickPaycheckForDueDate } from "@/lib/calc/allocate";
 import type { Bill, BillAllocation, IncomeSource } from "@/lib/supabase/types";
 import { BillForm } from "./bill-form";
-import { deleteBill } from "./mutations";
+import { allocateBill, deleteBill } from "./mutations";
 import { AllocationPicker, type PaycheckOption } from "./allocation-picker";
 
 const WINDOW_DAYS = 60;
@@ -18,6 +19,7 @@ const WINDOW_DAYS = 60;
 export default function BillsPage() {
   const { supabase, user, members, canEdit, nameFor } = useAuth();
   const isShared = members.length > 1;
+  const [assigning, setAssigning] = useState(false);
 
   const load = useCallback(async () => {
     const [billsRes, sourcesRes, allocationsRes] = await Promise.all([
@@ -58,13 +60,52 @@ export default function BillsPage() {
   );
   occurrences.sort((a, b) => a.date.localeCompare(b.date));
 
+  const isAssigned = (billId: string, date: string) =>
+    allocations.some((a) => a.bill_id === billId && a.bill_due_date === date);
+
+  // Unassigned occurrences that have a paycheck landing on or before the due
+  // date — the ones auto-assign can actually place.
+  const autoAssignable = occurrences.filter(
+    ({ bill, date }) =>
+      !isAssigned(bill.id, date) && pickPaycheckForDueDate(paycheckOptions, date) !== null
+  );
+
+  async function autoAssign() {
+    if (!user) return;
+    setAssigning(true);
+    try {
+      for (const { bill, date } of autoAssignable) {
+        const pick = pickPaycheckForDueDate(paycheckOptions, date);
+        if (pick) {
+          await allocateBill(supabase, user.id, bill.id, date, pick.incomeSourceId, pick.date);
+        }
+      }
+      await refresh();
+    } finally {
+      setAssigning(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Card title="Add a bill">
         <BillForm onChanged={refresh} />
       </Card>
 
-      <Card title={`Upcoming bills (next ${WINDOW_DAYS} days)`}>
+      <Card
+        title={`Upcoming bills (next ${WINDOW_DAYS} days)`}
+        action={
+          autoAssignable.length > 0 ? (
+            <button onClick={autoAssign} disabled={assigning} className={`${ghostButtonClass} text-xs`}>
+              {assigning ? "Assigning…" : `Auto-assign ${autoAssignable.length}`}
+            </button>
+          ) : undefined
+        }
+      >
+        <p className="mb-3 text-xs text-neutral-500">
+          Auto-assign fills each unassigned bill with the nearest paycheck on or before its due
+          date. It never changes an assignment you&apos;ve set yourself.
+        </p>
         <div className="flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800">
           {occurrences.map(({ bill, date }) => {
             const allocation = allocations.find(
