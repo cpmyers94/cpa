@@ -8,7 +8,10 @@ export type DebtType =
   | "personal_loan"
   | "mortgage"
   | "medical"
+  | "bnpl"
   | "other";
+
+export type InstallmentFrequency = "weekly" | "biweekly" | "monthly";
 
 interface Owned {
   user_id: string;
@@ -85,6 +88,11 @@ export interface Debt extends Owned {
   interest_rate: number;
   minimum_payment: number;
   due_day: number | null;
+  // BNPL-only fields: fixed installments on a fixed schedule.
+  installment_amount: number | null;
+  payments_remaining: number | null;
+  installment_frequency: InstallmentFrequency | null;
+  next_payment_date: string | null;
   created_at: string;
 }
 

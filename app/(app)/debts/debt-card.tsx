@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { addDays, addMonths, format } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { Card, inputClass, ghostButtonClass } from "@/components/card";
 import { formatCurrency, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
 import type { Debt } from "@/lib/supabase/types";
-import { addPayment, deleteDebt } from "./mutations";
+import { addPayment, deleteDebt, payBnplInstallment } from "./mutations";
 
 const TYPE_LABEL: Record<string, string> = {
   credit_card: "Credit card",
@@ -14,20 +15,75 @@ const TYPE_LABEL: Record<string, string> = {
   personal_loan: "Personal loan",
   mortgage: "Mortgage",
   medical: "Medical",
+  bnpl: "BNPL",
   other: "Other",
 };
 
-export function DebtCard({
-  debt,
-  editable,
-  onChanged,
-}: {
-  debt: Debt;
-  editable: boolean;
-  onChanged: () => void;
-}) {
-  const { supabase, user, members, nameFor } = useAuth();
-  const isShared = members.length > 1;
+const FREQUENCY_LABEL: Record<string, string> = {
+  weekly: "weekly",
+  biweekly: "every 2 weeks",
+  monthly: "monthly",
+};
+
+function bnplCompletionDate(debt: Debt): Date | null {
+  if (!debt.next_payment_date || !debt.payments_remaining) return null;
+  const start = new Date(debt.next_payment_date);
+  const steps = debt.payments_remaining - 1;
+  if (debt.installment_frequency === "weekly") return addDays(start, steps * 7);
+  if (debt.installment_frequency === "biweekly") return addDays(start, steps * 14);
+  return addMonths(start, steps);
+}
+
+function BnplBody({ debt, editable, onChanged }: { debt: Debt; editable: boolean; onChanged: () => void }) {
+  const { supabase, user } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const done = bnplCompletionDate(debt);
+  const remaining = debt.payments_remaining ?? 0;
+
+  async function logInstallment() {
+    if (!user) return;
+    setBusy(true);
+    try {
+      await payBnplInstallment(supabase, user.id, debt);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-md bg-neutral-50 p-3 text-sm dark:bg-neutral-800/50">
+      {remaining > 0 ? (
+        <>
+          <p className="text-neutral-600 dark:text-neutral-300">
+            {remaining} payment{remaining === 1 ? "" : "s"} of{" "}
+            {formatCurrency(debt.installment_amount ?? 0)} left ·{" "}
+            {FREQUENCY_LABEL[debt.installment_frequency ?? "monthly"]}
+          </p>
+          <p className="mt-1 text-xs text-neutral-500">
+            {debt.next_payment_date &&
+              `Next payment ${new Date(debt.next_payment_date).toLocaleDateString()}`}
+            {done && ` · paid off ${format(done, "MMM d, yyyy")}`}
+          </p>
+          {editable && (
+            <button
+              onClick={logInstallment}
+              disabled={busy}
+              className={`${ghostButtonClass} mt-2 text-xs`}
+            >
+              {busy ? "Logging…" : "Log installment paid"}
+            </button>
+          )}
+        </>
+      ) : (
+        <p className="text-emerald-600 dark:text-emerald-400">All installments paid 🎉</p>
+      )}
+    </div>
+  );
+}
+
+function RevolvingBody({ debt, editable, onChanged }: { debt: Debt; editable: boolean; onChanged: () => void }) {
+  const { supabase, user } = useAuth();
   const [payment, setPayment] = useState(debt.minimum_payment || 0);
 
   const months = useMemo(
@@ -51,27 +107,7 @@ export function DebtCard({
   }
 
   return (
-    <Card>
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="font-semibold">
-            {debt.name}
-            {isShared && (
-              <span className="ml-2 text-xs font-normal text-neutral-400">
-                {nameFor(debt.user_id)}
-              </span>
-            )}
-          </h3>
-          <p className="text-xs text-neutral-500">
-            {TYPE_LABEL[debt.type]} · {debt.interest_rate}% APR
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-semibold">{formatCurrency(debt.balance)}</p>
-          <p className="text-xs text-neutral-500">min {formatCurrency(debt.minimum_payment)}/mo</p>
-        </div>
-      </div>
-
+    <>
       <div className="mt-3 rounded-md bg-neutral-50 p-3 text-sm dark:bg-neutral-800/50">
         <label className="flex items-center justify-between gap-2 text-xs text-neutral-500">
           Monthly payment
@@ -107,6 +143,57 @@ export function DebtCard({
           </button>
         </form>
       )}
+    </>
+  );
+}
+
+export function DebtCard({
+  debt,
+  editable,
+  onChanged,
+}: {
+  debt: Debt;
+  editable: boolean;
+  onChanged: () => void;
+}) {
+  const { supabase, members, nameFor } = useAuth();
+  const isShared = members.length > 1;
+  const isBnpl = debt.type === "bnpl";
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="font-semibold">
+            {debt.name}
+            {isShared && (
+              <span className="ml-2 text-xs font-normal text-neutral-400">
+                {nameFor(debt.user_id)}
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-neutral-500">
+            {TYPE_LABEL[debt.type]}
+            {!isBnpl && ` · ${debt.interest_rate}% APR`}
+            {isBnpl && " · interest built into payments"}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-semibold">{formatCurrency(debt.balance)}</p>
+          <p className="text-xs text-neutral-500">
+            {isBnpl
+              ? `${formatCurrency(debt.installment_amount ?? 0)} per payment`
+              : `min ${formatCurrency(debt.minimum_payment)}/mo`}
+          </p>
+        </div>
+      </div>
+
+      {isBnpl ? (
+        <BnplBody debt={debt} editable={editable} onChanged={onChanged} />
+      ) : (
+        <RevolvingBody debt={debt} editable={editable} onChanged={onChanged} />
+      )}
+
       {editable && (
         <div className="mt-2 text-right">
           <button

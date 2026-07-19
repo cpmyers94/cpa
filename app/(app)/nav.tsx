@@ -9,6 +9,7 @@ import {
   CalendarDays,
   PiggyBank,
   CreditCard,
+  TrendingDown,
   Users,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ const links = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/goals", label: "Goals", icon: PiggyBank },
   { href: "/debts", label: "Debts", icon: CreditCard },
+  { href: "/plan", label: "Plan", icon: TrendingDown },
   { href: "/household", label: "Household", icon: Users },
 ];
 

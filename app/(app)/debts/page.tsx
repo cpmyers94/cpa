@@ -5,6 +5,7 @@ import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
+import { monthlyBnplObligation } from "@/lib/calc/debt-plan";
 import type { Debt } from "@/lib/supabase/types";
 import { DebtForm } from "./debt-form";
 import { DebtCard } from "./debt-card";
@@ -24,8 +25,13 @@ export default function DebtsPage() {
   }
 
   const totalBalance = sum(debts.map((d) => d.balance));
-  const totalMinimum = sum(debts.map((d) => d.minimum_payment));
-  const avalancheOrder = [...debts].sort((a, b) => b.interest_rate - a.interest_rate);
+  const totalMinimum =
+    sum(debts.map((d) => d.minimum_payment)) + monthlyBnplObligation(debts);
+  // BNPL plans run on fixed schedules, so they don't participate in
+  // avalanche ordering.
+  const avalancheOrder = debts
+    .filter((d) => d.type !== "bnpl")
+    .sort((a, b) => b.interest_rate - a.interest_rate);
 
   return (
     <div className="flex flex-col gap-6">
@@ -41,14 +47,16 @@ export default function DebtsPage() {
               <p className="text-lg font-semibold">{formatCurrency(totalBalance)}</p>
             </div>
             <div>
-              <p className="text-neutral-500">Total minimum payments</p>
+              <p className="text-neutral-500">Committed payments /mo</p>
               <p className="text-lg font-semibold">{formatCurrency(totalMinimum)}</p>
             </div>
           </div>
-          <p className="mt-4 text-xs text-neutral-500">
-            Avalanche payoff order (highest interest rate first):{" "}
-            {avalancheOrder.map((d) => d.name).join(" → ")}
-          </p>
+          {avalancheOrder.length > 0 && (
+            <p className="mt-4 text-xs text-neutral-500">
+              Avalanche payoff order (highest interest rate first):{" "}
+              {avalancheOrder.map((d) => d.name).join(" → ")}
+            </p>
+          )}
         </Card>
       )}
 
