@@ -52,12 +52,32 @@ export interface Bill extends Owned {
   created_at: string;
 }
 
-export interface BillAllocation extends Owned {
+export type ObligationType = "bill" | "debt" | "expense";
+
+/**
+ * Ties one obligation occurrence (a bill, a debt payment, or a dated expense)
+ * to a specific paycheck. Exactly one of bill_id / debt_id / expense_id is set;
+ * `bill_due_date` is the occurrence date for all three.
+ */
+export interface ObligationAllocation extends Owned {
   id: string;
-  bill_id: string;
+  bill_id: string | null;
+  debt_id: string | null;
+  expense_id: string | null;
   income_source_id: string;
   paycheck_date: string;
   bill_due_date: string;
+  created_at: string;
+}
+
+export interface Expense extends Owned {
+  id: string;
+  name: string;
+  amount: number; // budgeted per month
+  category: string;
+  is_subscription: boolean;
+  due_day: number | null; // set => dated monthly charge, enters paycheck planning
+  active: boolean;
   created_at: string;
 }
 

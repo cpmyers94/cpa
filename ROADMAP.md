@@ -29,6 +29,16 @@ free app.
 - Plaid is SOC 2 Type II audited and the industry standard (Venmo, Chime, etc.).
   Strong, but no integration can *guarantee* security.
 
+**What it would power (beyond the current manual entry):**
+
+- **Auto-fill the Expenses section.** Detect recurring charges in the
+  transaction feed, average them, and categorize them into the monthly budget
+  categories the Expenses page already models — so "Groceries ≈ $600/mo" and
+  each subscription (with its charge day) populate themselves instead of being
+  typed in. Subscriptions detected with a due date flow straight into paycheck
+  planning, exactly like a user-added dated expense does today.
+- **Surface forgotten subscriptions** the user is still paying for.
+
 **Free alternative if we want real spending data without the cost/approval:**
 
 - **CSV import** — user downloads transactions from their bank and drops the file

@@ -2,18 +2,21 @@
 
 import { useAuth } from "@/components/auth";
 import { inputClass, ghostButtonClass } from "@/components/card";
-import { allocateBill, unallocateBill } from "./mutations";
+import type { ObligationType } from "@/lib/supabase/types";
+import { allocateObligation, unallocateObligation } from "./mutations";
 
 export type PaycheckOption = { incomeSourceId: string; incomeSourceName: string; date: string };
 
 export function AllocationPicker({
-  billId,
+  obligationType,
+  obligationId,
   dueDate,
   options,
   current,
   onChanged,
 }: {
-  billId: string;
+  obligationType: ObligationType;
+  obligationId: string;
   dueDate: string;
   options: PaycheckOption[];
   current: { id: string; incomeSourceName: string; paycheckDate: string } | null;
@@ -30,7 +33,7 @@ export function AllocationPicker({
         </span>
         <button
           onClick={async () => {
-            await unallocateBill(supabase, current.id);
+            await unallocateObligation(supabase, current.id);
             onChanged();
           }}
           className="text-red-500 hover:underline"
@@ -51,7 +54,15 @@ export function AllocationPicker({
     const formData = new FormData(event.currentTarget);
     const [incomeSourceId, paycheckDate] = String(formData.get("paycheck")).split("|");
     if (!incomeSourceId || !paycheckDate) return;
-    await allocateBill(supabase, user.id, billId, dueDate, incomeSourceId, paycheckDate);
+    await allocateObligation(
+      supabase,
+      user.id,
+      obligationType,
+      obligationId,
+      dueDate,
+      incomeSourceId,
+      paycheckDate
+    );
     onChanged();
   }
 

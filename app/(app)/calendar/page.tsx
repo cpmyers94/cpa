@@ -16,23 +16,35 @@ import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency } from "@/lib/calc/money";
 import { getPaycheckOccurrences } from "@/lib/calc/schedule";
-import { getBillOccurrences } from "@/lib/calc/bills";
-import type { Bill, IncomeSource } from "@/lib/supabase/types";
+import { getObligations } from "@/lib/calc/obligations";
+import type { Bill, Debt, Expense, IncomeSource, ObligationType } from "@/lib/supabase/types";
 
-type DayEvent = { label: string; amount: number; kind: "pay" | "bill" };
+type EventKind = "pay" | ObligationType;
+type DayEvent = { label: string; amount: number; kind: EventKind };
+
+const EVENT_CLASS: Record<EventKind, string> = {
+  pay: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+  bill: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+  debt: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
+  expense: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
+};
 
 export default function CalendarPage() {
   const { supabase, user } = useAuth();
   const [monthStart, setMonthStart] = useState(() => startOfMonth(new Date()));
 
   const load = useCallback(async () => {
-    const [sourcesRes, billsRes] = await Promise.all([
+    const [sourcesRes, billsRes, debtsRes, expensesRes] = await Promise.all([
       supabase.from("income_sources").select("*").eq("active", true),
       supabase.from("bills").select("*").eq("active", true),
+      supabase.from("debts").select("*"),
+      supabase.from("expenses").select("*").eq("active", true),
     ]);
     return {
       sources: (sourcesRes.data ?? []) as IncomeSource[],
       bills: (billsRes.data ?? []) as Bill[],
+      debts: (debtsRes.data ?? []) as Debt[],
+      expenses: (expensesRes.data ?? []) as Expense[],
     };
   }, [supabase]);
 
@@ -41,27 +53,28 @@ export default function CalendarPage() {
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
-  const { sources, bills } = data;
+  const { sources, bills, debts, expenses } = data;
 
   const monthEnd = endOfMonth(monthStart);
   const gridStart = startOfWeek(monthStart);
   const gridEnd = endOfWeek(monthEnd);
 
   const eventsByDay = new Map<string, DayEvent[]>();
-  const pushEvent = (date: Date, event: DayEvent) => {
-    const key = format(date, "yyyy-MM-dd");
+  const pushEvent = (key: string, event: DayEvent) => {
     eventsByDay.set(key, [...(eventsByDay.get(key) ?? []), event]);
   };
 
   for (const source of sources) {
     for (const date of getPaycheckOccurrences(source, gridStart, gridEnd)) {
-      pushEvent(date, { label: source.name, amount: source.gross_amount, kind: "pay" });
+      pushEvent(format(date, "yyyy-MM-dd"), {
+        label: source.name,
+        amount: source.gross_amount,
+        kind: "pay",
+      });
     }
   }
-  for (const bill of bills) {
-    for (const date of getBillOccurrences(bill, gridStart, gridEnd)) {
-      pushEvent(date, { label: bill.name, amount: bill.amount, kind: "bill" });
-    }
+  for (const ob of getObligations(bills, debts, expenses, gridStart, gridEnd)) {
+    pushEvent(ob.date, { label: ob.name, amount: ob.amount, kind: ob.type });
   }
 
   const days: Date[] = [];
@@ -85,6 +98,22 @@ export default function CalendarPage() {
             Next →
           </button>
         </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-3 text-[11px] text-neutral-500">
+        {(
+          [
+            ["pay", "Paycheck"],
+            ["bill", "Bill"],
+            ["debt", "Debt"],
+            ["expense", "Subscription"],
+          ] as const
+        ).map(([kind, label]) => (
+          <span key={kind} className="flex items-center gap-1.5">
+            <span className={`inline-block h-2.5 w-2.5 rounded-sm ${EVENT_CLASS[kind]}`} />
+            {label}
+          </span>
+        ))}
       </div>
 
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-md border border-neutral-200 bg-neutral-200 text-xs dark:border-neutral-800 dark:bg-neutral-800">
@@ -119,11 +148,7 @@ export default function CalendarPage() {
                 {events.map((e, i) => (
                   <span
                     key={i}
-                    className={`truncate rounded px-1 py-0.5 text-[10px] ${
-                      e.kind === "pay"
-                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
-                        : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-                    }`}
+                    className={`truncate rounded px-1 py-0.5 text-[10px] ${EVENT_CLASS[e.kind]}`}
                     title={`${e.label} · ${formatCurrency(e.amount)}`}
                   >
                     {e.label}

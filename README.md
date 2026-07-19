@@ -19,8 +19,19 @@ only ever sees its own data.
   the paycheck that covers it.
 - **Calendar** — a month view of upcoming paydays and bill due dates.
 - **Goals** — savings goals with progress bars and contribution logging.
-- **Debts** — track balances/APR/minimum payments with a payoff calculator
-  (months to payoff, total interest) and a suggested avalanche payoff order.
+- **Expenses** — everyday spending as monthly budget categories (groceries,
+  gas, dining). Mark one a subscription with a charge day and it also becomes a
+  dated obligation in paycheck planning.
+- **Debts** — track balances/APR/minimum payments (with a payoff calculator)
+  and BNPL installment plans. Debt payments are assignable to paychecks just
+  like bills.
+- **Obligations & paycheck planning** — bills, debt payments, and dated
+  subscriptions are unified as "obligations" you assign to the paycheck that
+  covers them (manually or via one-click auto-assign), shown together on the
+  calendar and dashboard.
+- **Plan** — evaluates your monthly cash flow (income vs. bills, expenses,
+  goals, and debt payments) and simulates a get-out-of-debt payoff (avalanche
+  or snowball, BNPL plans on their fixed schedules).
 - **Households** — share one consolidated budget across multiple accounts.
   Each person signs in with their own login; an invite code links them into a
   household, and everyone sees a combined view of all paychecks, bills, goals,

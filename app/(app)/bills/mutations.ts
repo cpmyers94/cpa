@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { BillFrequency } from "@/lib/supabase/types";
+import type { BillFrequency, ObligationType } from "@/lib/supabase/types";
+
+const OBLIGATION_COLUMN: Record<ObligationType, "bill_id" | "debt_id" | "expense_id"> = {
+  bill: "bill_id",
+  debt: "debt_id",
+  expense: "expense_id",
+};
 
 export async function addBill(
   supabase: SupabaseClient,
@@ -24,26 +30,35 @@ export async function deleteBill(supabase: SupabaseClient, id: string) {
   await supabase.from("bills").delete().eq("id", id);
 }
 
-export async function allocateBill(
+/**
+ * Assigns one obligation occurrence (bill / debt payment / dated expense) to a
+ * paycheck. Delete-then-insert keeps it to a single allocation per occurrence
+ * without depending on a partial-index upsert target.
+ */
+export async function allocateObligation(
   supabase: SupabaseClient,
   userId: string,
-  billId: string,
-  billDueDate: string,
+  type: ObligationType,
+  obligationId: string,
+  occurrenceDate: string,
   incomeSourceId: string,
   paycheckDate: string
 ) {
-  await supabase.from("bill_allocations").upsert(
-    {
-      user_id: userId,
-      bill_id: billId,
-      bill_due_date: billDueDate,
-      income_source_id: incomeSourceId,
-      paycheck_date: paycheckDate,
-    },
-    { onConflict: "bill_id,bill_due_date" }
-  );
+  const column = OBLIGATION_COLUMN[type];
+  await supabase
+    .from("bill_allocations")
+    .delete()
+    .eq(column, obligationId)
+    .eq("bill_due_date", occurrenceDate);
+  await supabase.from("bill_allocations").insert({
+    user_id: userId,
+    [column]: obligationId,
+    bill_due_date: occurrenceDate,
+    income_source_id: incomeSourceId,
+    paycheck_date: paycheckDate,
+  });
 }
 
-export async function unallocateBill(supabase: SupabaseClient, id: string) {
+export async function unallocateObligation(supabase: SupabaseClient, id: string) {
   await supabase.from("bill_allocations").delete().eq("id", id);
 }

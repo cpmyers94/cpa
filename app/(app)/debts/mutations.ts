@@ -37,6 +37,7 @@ export async function addDebt(
     balance: Number(formData.get("balance")),
     interest_rate: Number(formData.get("interest_rate") || 0),
     minimum_payment: Number(formData.get("minimum_payment") || 0),
+    due_day: formData.get("due_day") ? Number(formData.get("due_day")) : null,
   });
 }
 

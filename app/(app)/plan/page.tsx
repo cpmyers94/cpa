@@ -17,6 +17,7 @@ import type {
   Bill,
   Debt,
   DebtPayment,
+  Expense,
   IncomeSource,
   PaycheckDeduction,
   SavingsGoal,
@@ -28,10 +29,11 @@ export default function PlanPage() {
   const [extraOverride, setExtraOverride] = useState<number | null>(null);
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, goals, debts, payments] = await Promise.all([
+    const [sources, deductions, bills, expenses, goals, debts, payments] = await Promise.all([
       supabase.from("income_sources").select("*").eq("active", true),
       supabase.from("paycheck_deductions").select("*"),
       supabase.from("bills").select("*").eq("active", true),
+      supabase.from("expenses").select("*").eq("active", true),
       supabase.from("savings_goals").select("*"),
       supabase.from("debts").select("*"),
       supabase.from("debt_payments").select("*"),
@@ -40,6 +42,7 @@ export default function PlanPage() {
       sources: (sources.data ?? []) as IncomeSource[],
       deductions: (deductions.data ?? []) as PaycheckDeduction[],
       bills: (bills.data ?? []) as Bill[],
+      expenses: (expenses.data ?? []) as Expense[],
       goals: (goals.data ?? []) as SavingsGoal[],
       debts: (debts.data ?? []) as Debt[],
       payments: (payments.data ?? []) as DebtPayment[],
@@ -52,7 +55,7 @@ export default function PlanPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, goals, debts, payments } = data;
+  const { sources, deductions, bills, expenses, goals, debts, payments } = data;
   const activeDebts = debts.filter(
     (d) => d.balance > 0 || (d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
   );
@@ -71,7 +74,7 @@ export default function PlanPage() {
     );
   }
 
-  const evaluation = evaluate(sources, deductions, bills, goals, debts, payments);
+  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, payments);
   const defaultExtra = Math.max(Math.floor(evaluation.surplus), 0);
   const extra = extraOverride ?? defaultExtra;
 
@@ -98,9 +101,10 @@ export default function PlanPage() {
   return (
     <div className="flex flex-col gap-6">
       <Card title="Where your money goes (monthly)">
-        <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-6">
           <Stat label="Net income" value={evaluation.income} />
           <Stat label="Bills" value={evaluation.bills} negative />
+          <Stat label="Expenses" value={evaluation.expenses} negative />
           <Stat label="Savings goals" value={evaluation.goals} negative />
           <Stat label="Debt payments" value={evaluation.minimums + evaluation.bnpl} negative />
           <div>

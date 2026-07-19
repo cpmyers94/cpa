@@ -80,6 +80,10 @@ export function DebtForm({ onChanged }: { onChanged: () => void }) {
           <input name="balance" type="number" step="0.01" min="0" placeholder="Balance" required className={inputClass} />
           <input name="interest_rate" type="number" step="0.01" min="0" placeholder="APR %" className={inputClass} />
           <input name="minimum_payment" type="number" step="0.01" min="0" placeholder="Min payment /mo" className={inputClass} />
+          <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+            Payment due day
+            <input name="due_day" type="number" min="1" max="31" defaultValue="1" className={inputClass} />
+          </label>
         </>
       )}
 

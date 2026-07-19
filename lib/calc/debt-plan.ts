@@ -2,11 +2,13 @@ import type {
   Bill,
   Debt,
   DebtPayment,
+  Expense,
   IncomeSource,
   PaycheckDeduction,
   SavingsGoal,
 } from "../supabase/types";
 import { sum } from "./money";
+import { monthlyExpenses } from "./obligations";
 
 // ---------------------------------------------------------------------------
 // Normalization: everything to steady-state dollars per month.
@@ -93,6 +95,7 @@ export type Finding = { kind: "good" | "warn" | "info"; text: string };
 export interface Evaluation {
   income: number;
   bills: number;
+  expenses: number; // monthly budgeted spending
   goals: number;
   minimums: number; // revolving minimum payments
   bnpl: number; // current monthly BNPL obligation
@@ -104,18 +107,20 @@ export function evaluate(
   sources: IncomeSource[],
   deductions: PaycheckDeduction[],
   bills: Bill[],
+  expenses: Expense[],
   goals: SavingsGoal[],
   debts: Debt[],
   payments: DebtPayment[]
 ): Evaluation {
   const income = monthlyNetIncome(sources, deductions);
   const billTotal = monthlyBills(bills);
+  const expenseTotal = monthlyExpenses(expenses);
   const goalTotal = sum(goals.map((g) => g.monthly_contribution ?? 0));
   const revolving = debts.filter((d) => d.type !== "bnpl" && d.balance > 0);
   const minimums = sum(revolving.map((d) => d.minimum_payment));
   const bnpl = monthlyBnplObligation(debts);
   const committed = minimums + bnpl;
-  const surplus = income - billTotal - goalTotal - committed;
+  const surplus = income - billTotal - expenseTotal - goalTotal - committed;
 
   const findings: Finding[] = [];
 
@@ -187,7 +192,16 @@ export function evaluate(
     }
   }
 
-  return { income, bills: billTotal, goals: goalTotal, minimums, bnpl, surplus, findings };
+  return {
+    income,
+    bills: billTotal,
+    expenses: expenseTotal,
+    goals: goalTotal,
+    minimums,
+    bnpl,
+    surplus,
+    findings,
+  };
 }
 
 function fmt(n: number): string {
