@@ -19,6 +19,11 @@ only ever sees its own data.
   the paycheck that covers it.
 - **Calendar** — a month view of upcoming paydays and bill due dates.
 - **Goals** — savings goals with progress bars and contribution logging.
+- **Safe to Spend** — a paycheck-by-paycheck view: each paycheck's take-home
+  minus the obligations assigned to it and its share of your everyday budget
+  leaves one honest "free to spend" number. Includes a **"Can I afford it?"**
+  checker that shows a purchase's hit to that paycheck and, if you carry debt,
+  roughly how many days it adds to your debt-free date.
 - **Expenses** — everyday spending as monthly budget categories (groceries,
   gas, dining). Mark one a subscription with a charge day and it also becomes a
   dated obligation in paycheck planning.

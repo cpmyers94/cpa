@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Wallet,
+  Coins,
   Receipt,
   ShoppingCart,
   CalendarDays,
@@ -16,6 +17,7 @@ import {
 
 const links = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/safe-to-spend", label: "Safe to Spend", icon: Coins },
   { href: "/paychecks", label: "Paychecks", icon: Wallet },
   { href: "/bills", label: "Bills", icon: Receipt },
   { href: "/expenses", label: "Expenses", icon: ShoppingCart },
