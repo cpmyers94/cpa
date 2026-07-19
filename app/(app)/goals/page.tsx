@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card, inputClass, ghostButtonClass } from "@/components/card";
@@ -60,6 +60,7 @@ function ContributionForm({
 export default function GoalsPage() {
   const { supabase, user, members, canEdit, nameFor } = useAuth();
   const isShared = members.length > 1;
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase.from("savings_goals").select("*").order("created_at");
@@ -80,6 +81,13 @@ export default function GoalsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         {goals.map((goal) => {
+          if (editingId === goal.id) {
+            return (
+              <Card key={goal.id} title={`Edit ${goal.name}`}>
+                <GoalForm editing={goal} onChanged={refresh} onDone={() => setEditingId(null)} />
+              </Card>
+            );
+          }
           const progress =
             goal.target_amount > 0 ? Math.min(goal.current_amount / goal.target_amount, 1) : 0;
           const remaining = Math.max(goal.target_amount - goal.current_amount, 0);
@@ -98,15 +106,23 @@ export default function GoalsPage() {
                   )}
                 </h3>
                 {canEdit(goal.user_id) && (
-                  <button
-                    onClick={async () => {
-                      await deleteGoal(supabase, goal.id);
-                      refresh();
-                    }}
-                    className="text-xs text-red-500 hover:underline"
-                  >
-                    delete
-                  </button>
+                  <span className="flex gap-3">
+                    <button
+                      onClick={() => setEditingId(goal.id)}
+                      className="text-xs text-neutral-500 hover:underline"
+                    >
+                      edit
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await deleteGoal(supabase, goal.id);
+                        refresh();
+                      }}
+                      className="text-xs text-red-500 hover:underline"
+                    >
+                      delete
+                    </button>
+                  </span>
                 )}
               </div>
               <p className="mt-1 text-sm text-neutral-500">

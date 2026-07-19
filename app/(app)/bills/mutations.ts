@@ -7,15 +7,9 @@ const OBLIGATION_COLUMN: Record<ObligationType, "bill_id" | "debt_id" | "expense
   expense: "expense_id",
 };
 
-export async function addBill(
-  supabase: SupabaseClient,
-  userId: string,
-  formData: FormData
-) {
+function billPayload(formData: FormData) {
   const frequency = String(formData.get("frequency")) as BillFrequency;
-
-  await supabase.from("bills").insert({
-    user_id: userId,
+  return {
     name: String(formData.get("name")),
     amount: Number(formData.get("amount")),
     category: String(formData.get("category") || "other"),
@@ -23,7 +17,23 @@ export async function addBill(
     due_day: frequency === "monthly" ? Number(formData.get("due_day")) : null,
     due_date: frequency === "monthly" ? null : String(formData.get("due_date")) || null,
     autopay: formData.get("autopay") === "on",
-  });
+  };
+}
+
+export async function addBill(
+  supabase: SupabaseClient,
+  userId: string,
+  formData: FormData
+) {
+  await supabase.from("bills").insert({ user_id: userId, ...billPayload(formData) });
+}
+
+export async function updateBill(
+  supabase: SupabaseClient,
+  id: string,
+  formData: FormData
+) {
+  await supabase.from("bills").update(billPayload(formData)).eq("id", id);
 }
 
 export async function deleteBill(supabase: SupabaseClient, id: string) {

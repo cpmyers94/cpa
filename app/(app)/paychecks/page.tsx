@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
@@ -21,6 +21,7 @@ const FREQUENCY_LABEL: Record<string, string> = {
 export default function PaychecksPage() {
   const { supabase, user, members, canEdit, nameFor } = useAuth();
   const isShared = members.length > 1;
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [sourcesRes, deductionsRes] = await Promise.all([
@@ -60,6 +61,18 @@ export default function PaychecksPage() {
           const net = source.gross_amount - sum(sourceDeductions.map((d) => d.amount));
           const next = nextPaycheckDate(source);
 
+          if (editingId === source.id) {
+            return (
+              <Card key={source.id} title={`Edit ${source.name}`}>
+                <IncomeSourceForm
+                  editing={source}
+                  onChanged={refresh}
+                  onDone={() => setEditingId(null)}
+                />
+              </Card>
+            );
+          }
+
           return (
             <Card key={source.id}>
               <div className="flex items-start justify-between">
@@ -91,7 +104,13 @@ export default function PaychecksPage() {
                 onChanged={refresh}
               />
               {canEdit(source.user_id) && (
-                <div className="mt-3 text-right">
+                <div className="mt-3 flex justify-end gap-3">
+                  <button
+                    onClick={() => setEditingId(source.id)}
+                    className="text-xs text-neutral-500 hover:underline"
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={async () => {
                       await deleteIncomeSource(supabase, source.id);

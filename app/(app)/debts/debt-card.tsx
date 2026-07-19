@@ -7,6 +7,7 @@ import { Card, inputClass, ghostButtonClass } from "@/components/card";
 import { formatCurrency, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
 import type { Debt } from "@/lib/supabase/types";
 import { addPayment, deleteDebt, payBnplInstallment } from "./mutations";
+import { DebtForm } from "./debt-form";
 
 const TYPE_LABEL: Record<string, string> = {
   credit_card: "Credit card",
@@ -159,6 +160,15 @@ export function DebtCard({
   const { supabase, members, nameFor } = useAuth();
   const isShared = members.length > 1;
   const isBnpl = debt.type === "bnpl";
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <Card title={`Edit ${debt.name}`}>
+        <DebtForm editing={debt} onChanged={onChanged} onDone={() => setEditing(false)} />
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -195,7 +205,13 @@ export function DebtCard({
       )}
 
       {editable && (
-        <div className="mt-2 text-right">
+        <div className="mt-2 flex justify-end gap-3">
+          <button
+            onClick={() => setEditing(true)}
+            className="text-xs text-neutral-500 hover:underline"
+          >
+            edit
+          </button>
           <button
             onClick={async () => {
               await deleteDebt(supabase, debt.id);

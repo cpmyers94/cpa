@@ -37,6 +37,7 @@ export default function BillsPage() {
   const { supabase, user, members, canEdit, nameFor } = useAuth();
   const isShared = members.length > 1;
   const [assigning, setAssigning] = useState(false);
+  const [editingBillId, setEditingBillId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [billsRes, debtsRes, expensesRes, sourcesRes, allocationsRes] = await Promise.all([
@@ -185,27 +186,45 @@ export default function BillsPage() {
 
       <Card title="All bills">
         <ul className="flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800">
-          {bills.map((bill) => (
-            <li key={bill.id} className="flex items-center justify-between py-2 text-sm">
-              <span>
-                {bill.name} · {formatCurrency(bill.amount)} · {bill.frequency.replace("_", " ")}
-                {isShared && (
-                  <span className="ml-2 text-xs text-neutral-400">added by {nameFor(bill.user_id)}</span>
+          {bills.map((bill) =>
+            editingBillId === bill.id ? (
+              <li key={bill.id} className="py-3">
+                <BillForm
+                  editing={bill}
+                  onChanged={refresh}
+                  onDone={() => setEditingBillId(null)}
+                />
+              </li>
+            ) : (
+              <li key={bill.id} className="flex items-center justify-between py-2 text-sm">
+                <span>
+                  {bill.name} · {formatCurrency(bill.amount)} · {bill.frequency.replace("_", " ")}
+                  {isShared && (
+                    <span className="ml-2 text-xs text-neutral-400">added by {nameFor(bill.user_id)}</span>
+                  )}
+                </span>
+                {canEdit(bill.user_id) && (
+                  <span className="flex gap-3">
+                    <button
+                      onClick={() => setEditingBillId(bill.id)}
+                      className="text-xs text-neutral-500 hover:underline"
+                    >
+                      edit
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await deleteBill(supabase, bill.id);
+                        refresh();
+                      }}
+                      className="text-xs text-red-500 hover:underline"
+                    >
+                      delete
+                    </button>
+                  </span>
                 )}
-              </span>
-              {canEdit(bill.user_id) && (
-                <button
-                  onClick={async () => {
-                    await deleteBill(supabase, bill.id);
-                    refresh();
-                  }}
-                  className="text-xs text-red-500 hover:underline"
-                >
-                  delete
-                </button>
-              )}
-            </li>
-          ))}
+              </li>
+            )
+          )}
           {bills.length === 0 && <li className="py-2 text-sm text-neutral-500">No bills yet.</li>}
         </ul>
       </Card>

@@ -1,12 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export async function addGoal(
-  supabase: SupabaseClient,
-  userId: string,
-  formData: FormData
-) {
-  await supabase.from("savings_goals").insert({
-    user_id: userId,
+function goalPayload(formData: FormData) {
+  return {
     name: String(formData.get("name")),
     target_amount: Number(formData.get("target_amount")),
     current_amount: Number(formData.get("current_amount") || 0),
@@ -14,7 +9,23 @@ export async function addGoal(
     monthly_contribution: formData.get("monthly_contribution")
       ? Number(formData.get("monthly_contribution"))
       : null,
-  });
+  };
+}
+
+export async function addGoal(
+  supabase: SupabaseClient,
+  userId: string,
+  formData: FormData
+) {
+  await supabase.from("savings_goals").insert({ user_id: userId, ...goalPayload(formData) });
+}
+
+export async function updateGoal(
+  supabase: SupabaseClient,
+  id: string,
+  formData: FormData
+) {
+  await supabase.from("savings_goals").update(goalPayload(formData)).eq("id", id);
 }
 
 export async function deleteGoal(supabase: SupabaseClient, id: string) {
