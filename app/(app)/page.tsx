@@ -7,8 +7,8 @@ import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
-import { getPaycheckOccurrences } from "@/lib/calc/schedule";
-import { getObligations } from "@/lib/calc/obligations";
+import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
+import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
 import type {
   Bill,
   Debt,
@@ -20,7 +20,7 @@ import type {
   SavingsGoal,
 } from "@/lib/supabase/types";
 
-const WINDOW_DAYS = 30;
+const WINDOW_DAYS = 90;
 
 type DashboardData = {
   sources: IncomeSource[];
@@ -71,18 +71,30 @@ export default function DashboardPage() {
   const today = new Date();
   const rangeEnd = addDays(today, WINDOW_DAYS);
 
-  const upcomingPaychecks = sources
-    .flatMap((source) => {
-      const netDeductions = sum(
-        deductions.filter((d) => d.income_source_id === source.id).map((d) => d.amount)
-      );
-      return getPaycheckOccurrences(source, today, rangeEnd).map((date) => ({
-        source,
-        date,
-        net: source.gross_amount - netDeductions,
-      }));
-    })
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
+  // Per-paycheck plan (net + free-to-spend), same inputs as the Safe to Spend
+  // page so the numbers match. Wide obligation window so allocations resolve.
+  const monthlyBudget = monthlyBudgetExpenses(expenses);
+  const savings = goals
+    .filter((g) => (g.per_paycheck_contribution ?? 0) > 0)
+    .map((g) => ({ name: g.name, amount: g.per_paycheck_contribution as number }));
+  const planObligations = getObligations(
+    bills,
+    debts,
+    expenses,
+    addDays(today, -7),
+    addDays(today, WINDOW_DAYS + 30)
+  );
+  const upcomingPaychecks = buildPaycheckPlan(
+    sources,
+    deductions,
+    planObligations,
+    allocations,
+    monthlyBudget,
+    savings,
+    today,
+    rangeEnd,
+    100
+  );
 
   const upcomingObligations = getObligations(bills, debts, expenses, today, rangeEnd);
 
@@ -156,9 +168,20 @@ export default function DashboardPage() {
             {upcomingPaychecks.map((p, i) => (
               <li key={i} className="flex items-center justify-between py-2">
                 <span>
-                  {p.source.name} · {p.date.toLocaleDateString()}
+                  {p.incomeSourceName} · {new Date(p.date).toLocaleDateString()}
                 </span>
-                <span className="font-medium">{formatCurrency(p.net)}</span>
+                <span className="text-right">
+                  <span className="block font-medium">{formatCurrency(p.net)}</span>
+                  <span
+                    className={`block text-xs ${
+                      p.freeToSpend >= 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-red-600 dark:text-red-400"
+                    }`}
+                  >
+                    {formatCurrency(p.freeToSpend)} free
+                  </span>
+                </span>
               </li>
             ))}
             {upcomingPaychecks.length === 0 && (
