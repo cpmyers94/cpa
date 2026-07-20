@@ -73,9 +73,21 @@ export default function GoalsPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
+  const totalSaved = goals.reduce((acc, g) => acc + g.current_amount, 0);
+
   return (
     <div className="flex flex-col gap-6">
-      <Card title="Add a savings goal">
+      <Card title="Total in savings">
+        <p className="text-3xl font-semibold text-emerald-600 dark:text-emerald-400">
+          {formatCurrency(totalSaved)}
+        </p>
+        <p className="text-xs text-neutral-500">
+          across {goals.length} savings {goals.length === 1 ? "bucket" : "buckets"} — your cash
+          cushion plus everything set aside toward goals.
+        </p>
+      </Card>
+
+      <Card title="Add savings or a goal">
         <GoalForm onChanged={refresh} />
       </Card>
 
@@ -88,11 +100,12 @@ export default function GoalsPage() {
               </Card>
             );
           }
-          const progress =
-            goal.target_amount > 0 ? Math.min(goal.current_amount / goal.target_amount, 1) : 0;
-          const remaining = Math.max(goal.target_amount - goal.current_amount, 0);
+          const isPool = goal.target_amount == null;
+          const target = goal.target_amount ?? 0;
+          const progress = target > 0 ? Math.min(goal.current_amount / target, 1) : 0;
+          const remaining = Math.max(target - goal.current_amount, 0);
           const months = monthsUntil(goal.target_date);
-          const neededPerMonth = months && months > 0 ? remaining / months : null;
+          const neededPerMonth = !isPool && months && months > 0 ? remaining / months : null;
 
           return (
             <Card key={goal.id}>
@@ -125,20 +138,36 @@ export default function GoalsPage() {
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-sm text-neutral-500">
-                {formatCurrency(goal.current_amount)} of {formatCurrency(goal.target_amount)}
-              </p>
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
-                <div className="h-full bg-emerald-500" style={{ width: `${progress * 100}%` }} />
-              </div>
-              <p className="mt-2 text-xs text-neutral-500">
-                {goal.target_date &&
-                  `Target: ${new Date(goal.target_date).toLocaleDateString()}`}
-                {neededPerMonth !== null && ` · needs ~${formatCurrency(neededPerMonth)}/mo`}
-                {goal.monthly_contribution &&
-                  !neededPerMonth &&
-                  ` · planned ${formatCurrency(goal.monthly_contribution)}/mo`}
-              </p>
+              {isPool ? (
+                <>
+                  <p className="mt-1 text-2xl font-semibold">
+                    {formatCurrency(goal.current_amount)}
+                  </p>
+                  <p className="text-xs text-neutral-500">
+                    saved
+                    {goal.monthly_contribution
+                      ? ` · adding ${formatCurrency(goal.monthly_contribution)}/mo`
+                      : ""}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    {formatCurrency(goal.current_amount)} of {formatCurrency(target)}
+                  </p>
+                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                    <div className="h-full bg-emerald-500" style={{ width: `${progress * 100}%` }} />
+                  </div>
+                  <p className="mt-2 text-xs text-neutral-500">
+                    {goal.target_date &&
+                      `Target: ${new Date(goal.target_date).toLocaleDateString()}`}
+                    {neededPerMonth !== null && ` · needs ~${formatCurrency(neededPerMonth)}/mo`}
+                    {goal.monthly_contribution &&
+                      !neededPerMonth &&
+                      ` · planned ${formatCurrency(goal.monthly_contribution)}/mo`}
+                  </p>
+                </>
+              )}
               {canEdit(goal.user_id) && <ContributionForm goal={goal} onChanged={refresh} />}
             </Card>
           );

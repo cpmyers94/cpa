@@ -3,9 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 function goalPayload(formData: FormData) {
   return {
     name: String(formData.get("name")),
-    target_amount: Number(formData.get("target_amount")),
+    target_amount: formData.get("target_amount") ? Number(formData.get("target_amount")) : null,
     current_amount: Number(formData.get("current_amount") || 0),
-    target_date: String(formData.get("target_date")) || null,
+    target_date: formData.get("target_date") ? String(formData.get("target_date")) : null,
     monthly_contribution: formData.get("monthly_contribution")
       ? Number(formData.get("monthly_contribution"))
       : null,

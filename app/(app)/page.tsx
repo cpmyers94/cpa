@@ -96,8 +96,8 @@ export default function DashboardPage() {
   ).length;
 
   const totalDebt = sum(debts.map((d) => d.balance));
-  const goalProgress = sum(goals.map((g) => g.current_amount));
-  const goalTarget = sum(goals.map((g) => g.target_amount));
+  const totalSaved = sum(goals.map((g) => g.current_amount));
+  const goalTarget = sum(goals.map((g) => g.target_amount ?? 0));
 
   return (
     <div className="flex flex-col gap-6">
@@ -124,14 +124,18 @@ export default function DashboardPage() {
             View payoff plans →
           </Link>
         </Card>
-        <Card title="Savings goals">
-          <p className="text-2xl font-semibold">{formatCurrency(goalProgress)}</p>
-          <p className="text-xs text-neutral-500">of {formatCurrency(goalTarget)} target</p>
+        <Card title="Savings">
+          <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
+            {formatCurrency(totalSaved)}
+          </p>
+          <p className="text-xs text-neutral-500">
+            your cash cushion{goalTarget > 0 && ` · ${formatCurrency(goalTarget)} in goal targets`}
+          </p>
           <Link
             href="/goals"
             className="mt-3 inline-block text-xs text-neutral-500 underline underline-offset-2"
           >
-            Manage goals →
+            Manage savings →
           </Link>
         </Card>
       </div>
