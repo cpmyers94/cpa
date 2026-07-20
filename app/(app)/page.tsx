@@ -27,7 +27,7 @@ import type {
   SavingsGoal,
 } from "@/lib/supabase/types";
 
-const WINDOW_DAYS = 90;
+const WINDOW_DAYS = 30;
 
 type DashboardData = {
   sources: IncomeSource[];
