@@ -87,7 +87,7 @@ export interface SavingsGoal extends Owned {
   target_amount: number | null;
   current_amount: number;
   target_date: string | null;
-  monthly_contribution: number | null;
+  per_paycheck_contribution: number | null;
   created_at: string;
 }
 

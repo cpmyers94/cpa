@@ -6,8 +6,8 @@ function goalPayload(formData: FormData) {
     target_amount: formData.get("target_amount") ? Number(formData.get("target_amount")) : null,
     current_amount: Number(formData.get("current_amount") || 0),
     target_date: formData.get("target_date") ? String(formData.get("target_date")) : null,
-    monthly_contribution: formData.get("monthly_contribution")
-      ? Number(formData.get("monthly_contribution"))
+    per_paycheck_contribution: formData.get("per_paycheck_contribution")
+      ? Number(formData.get("per_paycheck_contribution"))
       : null,
   };
 }

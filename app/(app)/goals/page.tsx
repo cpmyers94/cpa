@@ -145,8 +145,8 @@ export default function GoalsPage() {
                   </p>
                   <p className="text-xs text-neutral-500">
                     saved
-                    {goal.monthly_contribution
-                      ? ` · adding ${formatCurrency(goal.monthly_contribution)}/mo`
+                    {goal.per_paycheck_contribution
+                      ? ` · adding ${formatCurrency(goal.per_paycheck_contribution)}/paycheck`
                       : ""}
                   </p>
                 </>
@@ -162,9 +162,8 @@ export default function GoalsPage() {
                     {goal.target_date &&
                       `Target: ${new Date(goal.target_date).toLocaleDateString()}`}
                     {neededPerMonth !== null && ` · needs ~${formatCurrency(neededPerMonth)}/mo`}
-                    {goal.monthly_contribution &&
-                      !neededPerMonth &&
-                      ` · planned ${formatCurrency(goal.monthly_contribution)}/mo`}
+                    {goal.per_paycheck_contribution &&
+                      ` · ${formatCurrency(goal.per_paycheck_contribution)}/paycheck`}
                   </p>
                 </>
               )}

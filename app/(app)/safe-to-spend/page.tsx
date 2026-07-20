@@ -64,8 +64,11 @@ export default function SafeToSpendPage() {
   // Wide window so allocated obligation occurrences can be looked up by date.
   const obligations = getObligations(bills, debts, expenses, addDays(today, -7), addDays(today, 120));
 
-  const monthlyBudget =
-    monthlyBudgetExpenses(expenses) + sum(goals.map((g) => g.monthly_contribution ?? 0));
+  const monthlyBudget = monthlyBudgetExpenses(expenses);
+
+  const savings = goals
+    .filter((g) => (g.per_paycheck_contribution ?? 0) > 0)
+    .map((g) => ({ name: g.name, amount: g.per_paycheck_contribution as number }));
 
   const plan = buildPaycheckPlan(
     sources,
@@ -73,6 +76,7 @@ export default function SafeToSpendPage() {
     obligations,
     allocations,
     monthlyBudget,
+    savings,
     today,
     addDays(today, 60),
     6
@@ -95,8 +99,9 @@ export default function SafeToSpendPage() {
 
       <Card title="Safe to spend, paycheck by paycheck">
         <p className="mb-4 text-xs text-neutral-500">
-          Each paycheck&apos;s take-home minus the obligations you&apos;ve assigned to it and its
-          share of your everyday budget. What&apos;s left is genuinely free.
+          Each paycheck&apos;s take-home minus the obligations you&apos;ve assigned to it, its
+          per-paycheck savings set-asides, and its share of your everyday budget. What&apos;s left
+          is genuinely free.
         </p>
 
         {plan.length === 0 ? (
@@ -150,6 +155,15 @@ export default function SafeToSpendPage() {
                       <span>−{formatCurrency(a.amount)}</span>
                     </div>
                   ))}
+                  {entry.savings.map((s, i) => (
+                    <div key={`s${i}`} className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
+                      <span className="flex items-center gap-2">
+                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                        {s.name} <span className="text-neutral-400">(savings)</span>
+                      </span>
+                      <span>−{formatCurrency(s.amount)}</span>
+                    </div>
+                  ))}
                   {entry.budgetReserve > 0 && (
                     <div className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
                       <span className="flex items-center gap-2">
@@ -159,9 +173,11 @@ export default function SafeToSpendPage() {
                       <span>−{formatCurrency(entry.budgetReserve)}</span>
                     </div>
                   )}
-                  {entry.assigned.length === 0 && entry.budgetReserve === 0 && (
-                    <p className="text-neutral-400">Nothing assigned to this paycheck yet.</p>
-                  )}
+                  {entry.assigned.length === 0 &&
+                    entry.savings.length === 0 &&
+                    entry.budgetReserve === 0 && (
+                      <p className="text-neutral-400">Nothing assigned to this paycheck yet.</p>
+                    )}
                 </div>
               </div>
             ))}

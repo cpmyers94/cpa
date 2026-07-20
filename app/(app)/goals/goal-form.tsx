@@ -88,12 +88,12 @@ export function GoalForm({
           className={inputClass}
         />
         <input
-          name="monthly_contribution"
+          name="per_paycheck_contribution"
           type="number"
           step="0.01"
           min="0"
-          placeholder="Monthly set-aside"
-          defaultValue={editing?.monthly_contribution ?? undefined}
+          placeholder="Per paycheck"
+          defaultValue={editing?.per_paycheck_contribution ?? undefined}
           className={inputClass}
         />
         {!isPool && (

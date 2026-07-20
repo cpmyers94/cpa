@@ -15,6 +15,11 @@ export interface AssignedObligation {
   type: ObligationType;
 }
 
+export interface SavingsLine {
+  name: string;
+  amount: number; // per-paycheck contribution to this bucket/goal
+}
+
 export interface PaycheckPlanEntry {
   incomeSourceId: string;
   incomeSourceName: string;
@@ -22,6 +27,8 @@ export interface PaycheckPlanEntry {
   net: number;
   assigned: AssignedObligation[];
   assignedTotal: number;
+  savings: SavingsLine[]; // per-paycheck savings set-asides
+  savingsTotal: number;
   budgetReserve: number; // this paycheck's share of undated monthly budget
   freeToSpend: number;
 }
@@ -43,9 +50,11 @@ function allocationRef(a: ObligationAllocation): { type: ObligationType; id: str
  * share of the undated monthly budget (everyday spending + planned goal
  * contributions). What's left is genuinely free to spend.
  *
- * `monthlyBudget` = undated expense budget + monthly goal contributions. Dated
- * obligations (bills, debt payments, subscriptions) are not included there —
- * they flow through `obligations`/`allocations` so nothing is double-counted.
+ * `monthlyBudget` = undated everyday expense budget only. Dated obligations
+ * (bills, debt payments, subscriptions) flow through `obligations`/`allocations`,
+ * and savings set-asides come in via `savings` — each a per-paycheck amount
+ * taken from every paycheck and shown as its own line — so nothing is
+ * double-counted.
  */
 export function buildPaycheckPlan(
   sources: IncomeSource[],
@@ -53,6 +62,7 @@ export function buildPaycheckPlan(
   obligations: Obligation[],
   allocations: ObligationAllocation[],
   monthlyBudget: number,
+  savings: SavingsLine[],
   rangeStart: Date,
   rangeEnd: Date,
   limit = 6
@@ -80,11 +90,14 @@ export function buildPaycheckPlan(
       }
 
       const assignedTotal = sum(assigned.map((a) => a.amount));
+      const savingsLines = savings.filter((s) => s.amount > 0);
+      const savingsTotal = sum(savingsLines.map((s) => s.amount));
       const budgetReserve =
         monthlyIncome > 0
           ? Math.round(monthlyBudget * (net / monthlyIncome) * 100) / 100
           : 0;
-      const freeToSpend = Math.round((net - assignedTotal - budgetReserve) * 100) / 100;
+      const freeToSpend =
+        Math.round((net - assignedTotal - savingsTotal - budgetReserve) * 100) / 100;
 
       entries.push({
         incomeSourceId: source.id,
@@ -93,6 +106,8 @@ export function buildPaycheckPlan(
         net,
         assigned,
         assignedTotal,
+        savings: savingsLines,
+        savingsTotal,
         budgetReserve,
         freeToSpend,
       });

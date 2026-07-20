@@ -41,6 +41,36 @@ export function monthlyNetIncome(
   );
 }
 
+/** Expected number of paychecks in a month across all active income sources. */
+export function paychecksPerMonth(sources: IncomeSource[]): number {
+  return sum(
+    sources.map((source) => {
+      switch (source.frequency) {
+        case "weekly":
+          return 52 / 12;
+        case "biweekly":
+          return 26 / 12;
+        case "semimonthly":
+          return 2;
+        case "monthly":
+          return 1;
+      }
+    })
+  );
+}
+
+/**
+ * Monthly savings set-aside. Contributions are entered per paycheck (what each
+ * paycheck moves to savings), so the monthly figure scales by how many
+ * paychecks land in a month.
+ */
+export function monthlySavingsContribution(
+  sources: IncomeSource[],
+  goals: SavingsGoal[]
+): number {
+  return sum(goals.map((g) => g.per_paycheck_contribution ?? 0)) * paychecksPerMonth(sources);
+}
+
 export function monthlyBills(bills: Bill[]): number {
   return sum(
     bills.map((bill) => {
@@ -115,7 +145,7 @@ export function evaluate(
   const income = monthlyNetIncome(sources, deductions);
   const billTotal = monthlyBills(bills);
   const expenseTotal = monthlyExpenses(expenses);
-  const goalTotal = sum(goals.map((g) => g.monthly_contribution ?? 0));
+  const goalTotal = monthlySavingsContribution(sources, goals);
   const revolving = debts.filter((d) => d.type !== "bnpl" && d.balance > 0);
   const minimums = sum(revolving.map((d) => d.minimum_payment));
   const bnpl = monthlyBnplObligation(debts);
