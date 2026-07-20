@@ -21,9 +21,12 @@ only ever sees its own data.
 - **Goals** — savings goals with progress bars and contribution logging.
 - **Safe to Spend** — a paycheck-by-paycheck view: each paycheck's take-home
   minus the obligations assigned to it and its share of your everyday budget
-  leaves one honest "free to spend" number. Includes a **"Can I afford it?"**
-  checker that shows a purchase's hit to that paycheck and, if you carry debt,
-  roughly how many days it adds to your debt-free date.
+  leaves one honest "free to spend" number. Each paycheck also carries its
+  recommended snowball assignment — the payoff plan's extra debt payment,
+  aimed at the current target debt and capped so it never overdraws the
+  paycheck. Includes a **"Can I afford it?"** checker that shows a purchase's
+  hit to that paycheck and, if you carry debt, roughly how many days it adds
+  to your debt-free date.
 - **Expenses** — everyday spending as monthly budget categories (groceries,
   gas, dining). Mark one a subscription with a charge day and it also becomes a
   dated obligation in paycheck planning.

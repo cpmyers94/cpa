@@ -23,6 +23,7 @@ import type {
   Expense,
   IncomeSource,
   PaycheckDeduction,
+  PlanSettings,
   SavingsGoal,
 } from "@/lib/supabase/types";
 
@@ -37,19 +38,21 @@ export default function PayoffDetailPage() {
 function PayoffDetail() {
   const { supabase, user } = useAuth();
   const params = useSearchParams();
-  const strategy: Strategy = params.get("strategy") === "snowball" ? "snowball" : "avalanche";
+  const strategyParam = params.get("strategy");
   const extraParam = params.get("extra");
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, expenses, goals, debts, payments] = await Promise.all([
-      supabase.from("income_sources").select("*").eq("active", true),
-      supabase.from("paycheck_deductions").select("*"),
-      supabase.from("bills").select("*").eq("active", true),
-      supabase.from("expenses").select("*").eq("active", true),
-      supabase.from("savings_goals").select("*"),
-      supabase.from("debts").select("*"),
-      supabase.from("debt_payments").select("*"),
-    ]);
+    const [sources, deductions, bills, expenses, goals, debts, payments, settings] =
+      await Promise.all([
+        supabase.from("income_sources").select("*").eq("active", true),
+        supabase.from("paycheck_deductions").select("*"),
+        supabase.from("bills").select("*").eq("active", true),
+        supabase.from("expenses").select("*").eq("active", true),
+        supabase.from("savings_goals").select("*"),
+        supabase.from("debts").select("*"),
+        supabase.from("debt_payments").select("*"),
+        supabase.from("plan_settings").select("*").limit(1),
+      ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
       deductions: (deductions.data ?? []) as PaycheckDeduction[],
@@ -58,6 +61,7 @@ function PayoffDetail() {
       goals: (goals.data ?? []) as SavingsGoal[],
       debts: (debts.data ?? []) as Debt[],
       payments: (payments.data ?? []) as DebtPayment[],
+      settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
     };
   }, [supabase]);
 
@@ -67,7 +71,7 @@ function PayoffDetail() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, expenses, goals, debts, payments } = data;
+  const { sources, deductions, bills, expenses, goals, debts, payments, settings } = data;
   const activeDebts = debts.filter(
     (d) => d.balance > 0 || (d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
   );
@@ -87,10 +91,14 @@ function PayoffDetail() {
 
   const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, payments);
   const recommendation = recommendSnowball(evaluation);
+  const strategy: Strategy =
+    strategyParam === "snowball" || strategyParam === "avalanche"
+      ? strategyParam
+      : (settings?.strategy ?? "snowball");
   const extra =
     extraParam !== null
       ? Math.max(Number(extraParam) || 0, 0)
-      : recommendation.recommended;
+      : (settings?.extra_override ?? recommendation.recommended);
 
   const plan = simulatePayoff(activeDebts, extra, strategy);
   const today = new Date();

@@ -20,6 +20,11 @@ export interface SavingsLine {
   amount: number; // per-paycheck contribution to this bucket/goal
 }
 
+export interface SnowballAssignment {
+  targetName: string; // debt the snowball attacks right now
+  perPaycheck: number; // recommended extra from each paycheck
+}
+
 export interface PaycheckPlanEntry {
   incomeSourceId: string;
   incomeSourceName: string;
@@ -30,6 +35,10 @@ export interface PaycheckPlanEntry {
   savings: SavingsLine[]; // per-paycheck savings set-asides
   savingsTotal: number;
   budgetReserve: number; // this paycheck's share of undated monthly budget
+  // Recommended snowball from this paycheck: capped at what's actually free so
+  // the recommendation never pushes a paycheck negative. null = no debt left
+  // or nothing free on this paycheck.
+  snowball: { targetName: string; amount: number } | null;
   freeToSpend: number;
 }
 
@@ -65,7 +74,8 @@ export function buildPaycheckPlan(
   savings: SavingsLine[],
   rangeStart: Date,
   rangeEnd: Date,
-  limit = 6
+  limit = 6,
+  snowball: SnowballAssignment | null = null
 ): PaycheckPlanEntry[] {
   const monthlyIncome = monthlyNetIncome(sources, deductions);
   const obByKey = new Map(obligations.map((o) => [obKey(o.type, o.id, o.date), o]));
@@ -96,8 +106,20 @@ export function buildPaycheckPlan(
         monthlyIncome > 0
           ? Math.round(monthlyBudget * (net / monthlyIncome) * 100) / 100
           : 0;
-      const freeToSpend =
+      const freeBeforeSnowball =
         Math.round((net - assignedTotal - savingsTotal - budgetReserve) * 100) / 100;
+
+      // Recommend the snowball from this paycheck, but never more than what's
+      // actually free — a recommendation that overdraws the paycheck isn't safe.
+      const snowballAmount = snowball
+        ? Math.min(Math.max(freeBeforeSnowball, 0), snowball.perPaycheck)
+        : 0;
+      const snowballLine =
+        snowball && snowballAmount > 0
+          ? { targetName: snowball.targetName, amount: Math.round(snowballAmount * 100) / 100 }
+          : null;
+      const freeToSpend =
+        Math.round((freeBeforeSnowball - (snowballLine?.amount ?? 0)) * 100) / 100;
 
       entries.push({
         incomeSourceId: source.id,
@@ -109,6 +131,7 @@ export function buildPaycheckPlan(
         savings: savingsLines,
         savingsTotal,
         budgetReserve,
+        snowball: snowballLine,
         freeToSpend,
       });
     }

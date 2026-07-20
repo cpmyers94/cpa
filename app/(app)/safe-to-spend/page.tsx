@@ -8,8 +8,14 @@ import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
-import { monthlyBnplObligation } from "@/lib/calc/debt-plan";
-import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
+import {
+  currentSnowballTarget,
+  evaluate,
+  monthlyBnplObligation,
+  paychecksPerMonth,
+  recommendSnowball,
+} from "@/lib/calc/debt-plan";
+import { buildPaycheckPlan, type SnowballAssignment } from "@/lib/calc/paycheck-plan";
 import type {
   Bill,
   Debt,
@@ -18,6 +24,7 @@ import type {
   ObligationAllocation,
   ObligationType,
   PaycheckDeduction,
+  PlanSettings,
   SavingsGoal,
 } from "@/lib/supabase/types";
 import { Affordability } from "./affordability";
@@ -32,15 +39,17 @@ export default function SafeToSpendPage() {
   const { supabase, user } = useAuth();
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, debts, expenses, goals, allocations] = await Promise.all([
-      supabase.from("income_sources").select("*").eq("active", true),
-      supabase.from("paycheck_deductions").select("*"),
-      supabase.from("bills").select("*").eq("active", true),
-      supabase.from("debts").select("*"),
-      supabase.from("expenses").select("*").eq("active", true),
-      supabase.from("savings_goals").select("*"),
-      supabase.from("bill_allocations").select("*"),
-    ]);
+    const [sources, deductions, bills, debts, expenses, goals, allocations, settings] =
+      await Promise.all([
+        supabase.from("income_sources").select("*").eq("active", true),
+        supabase.from("paycheck_deductions").select("*"),
+        supabase.from("bills").select("*").eq("active", true),
+        supabase.from("debts").select("*"),
+        supabase.from("expenses").select("*").eq("active", true),
+        supabase.from("savings_goals").select("*"),
+        supabase.from("bill_allocations").select("*"),
+        supabase.from("plan_settings").select("*").limit(1),
+      ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
       deductions: (deductions.data ?? []) as PaycheckDeduction[],
@@ -49,6 +58,7 @@ export default function SafeToSpendPage() {
       expenses: (expenses.data ?? []) as Expense[],
       goals: (goals.data ?? []) as SavingsGoal[],
       allocations: (allocations.data ?? []) as ObligationAllocation[],
+      settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
     };
   }, [supabase]);
 
@@ -58,7 +68,7 @@ export default function SafeToSpendPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, debts, expenses, goals, allocations } = data;
+  const { sources, deductions, bills, debts, expenses, goals, allocations, settings } = data;
 
   const today = new Date();
   // Wide window so allocated obligation occurrences can be looked up by date.
@@ -70,6 +80,21 @@ export default function SafeToSpendPage() {
     .filter((g) => (g.per_paycheck_contribution ?? 0) > 0)
     .map((g) => ({ name: g.name, amount: g.per_paycheck_contribution as number }));
 
+  // The household's payoff plan, resolved to a per-paycheck assignment: the
+  // monthly snowball split across paychecks, aimed at the current target debt.
+  const strategy = settings?.strategy ?? "snowball";
+  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, []);
+  const monthlySnowball = settings?.extra_override ?? recommendSnowball(evaluation).recommended;
+  const target = currentSnowballTarget(debts, strategy);
+  const ppm = paychecksPerMonth(sources);
+  const snowball: SnowballAssignment | null =
+    target && ppm > 0 && monthlySnowball > 0
+      ? {
+          targetName: target.name,
+          perPaycheck: Math.round((monthlySnowball / ppm) * 100) / 100,
+        }
+      : null;
+
   const plan = buildPaycheckPlan(
     sources,
     deductions,
@@ -79,7 +104,8 @@ export default function SafeToSpendPage() {
     savings,
     today,
     addDays(today, 60),
-    6
+    6,
+    snowball
   );
 
   // Monthly money already headed to debt (minimums + BNPL). Extra surplus isn't
@@ -173,9 +199,20 @@ export default function SafeToSpendPage() {
                       <span>−{formatCurrency(entry.budgetReserve)}</span>
                     </div>
                   )}
+                  {entry.snowball && (
+                    <div className="flex items-center justify-between font-medium text-purple-700 dark:text-purple-300">
+                      <span className="flex items-center gap-2">
+                        <span className="inline-block h-2 w-2 rounded-full bg-purple-500" />
+                        Snowball → {entry.snowball.targetName}
+                        <span className="font-normal text-neutral-400">recommended</span>
+                      </span>
+                      <span>−{formatCurrency(entry.snowball.amount)}</span>
+                    </div>
+                  )}
                   {entry.assigned.length === 0 &&
                     entry.savings.length === 0 &&
-                    entry.budgetReserve === 0 && (
+                    entry.budgetReserve === 0 &&
+                    !entry.snowball && (
                       <p className="text-neutral-400">Nothing assigned to this paycheck yet.</p>
                     )}
                 </div>
@@ -186,7 +223,12 @@ export default function SafeToSpendPage() {
               <Link href="/bills" className="underline underline-offset-2">
                 Bills page
               </Link>{" "}
-              (or use auto-assign) so this number stays honest.
+              (or use auto-assign) so this number stays honest. The purple snowball line is your{" "}
+              <Link href="/plan" className="underline underline-offset-2">
+                payoff plan
+              </Link>
+              &apos;s recommended extra debt payment from that paycheck — capped so it never
+              overdraws it.
             </p>
           </div>
         )}

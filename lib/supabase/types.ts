@@ -125,6 +125,14 @@ export interface DebtPayment extends Owned {
   created_at: string;
 }
 
+export interface PlanSettings {
+  household_id: string;
+  user_id: string;
+  strategy: "avalanche" | "snowball";
+  extra_override: number | null;
+  updated_at: string;
+}
+
 export interface Household {
   id: string;
   name: string;

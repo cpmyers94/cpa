@@ -8,7 +8,13 @@ import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
-import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
+import {
+  currentSnowballTarget,
+  evaluate,
+  paychecksPerMonth,
+  recommendSnowball,
+} from "@/lib/calc/debt-plan";
+import { buildPaycheckPlan, type SnowballAssignment } from "@/lib/calc/paycheck-plan";
 import type {
   Bill,
   Debt,
@@ -17,6 +23,7 @@ import type {
   ObligationAllocation,
   ObligationType,
   PaycheckDeduction,
+  PlanSettings,
   SavingsGoal,
 } from "@/lib/supabase/types";
 
@@ -30,6 +37,7 @@ type DashboardData = {
   allocations: ObligationAllocation[];
   goals: SavingsGoal[];
   debts: Debt[];
+  settings: PlanSettings | null;
 };
 
 function allocationColumn(type: ObligationType): "bill_id" | "debt_id" | "expense_id" {
@@ -40,15 +48,17 @@ export default function DashboardPage() {
   const { supabase, user } = useAuth();
 
   const load = useCallback(async (): Promise<DashboardData> => {
-    const [sources, deductions, bills, expenses, allocations, goals, debts] = await Promise.all([
-      supabase.from("income_sources").select("*").eq("active", true),
-      supabase.from("paycheck_deductions").select("*"),
-      supabase.from("bills").select("*").eq("active", true),
-      supabase.from("expenses").select("*").eq("active", true),
-      supabase.from("bill_allocations").select("*"),
-      supabase.from("savings_goals").select("*"),
-      supabase.from("debts").select("*"),
-    ]);
+    const [sources, deductions, bills, expenses, allocations, goals, debts, settings] =
+      await Promise.all([
+        supabase.from("income_sources").select("*").eq("active", true),
+        supabase.from("paycheck_deductions").select("*"),
+        supabase.from("bills").select("*").eq("active", true),
+        supabase.from("expenses").select("*").eq("active", true),
+        supabase.from("bill_allocations").select("*"),
+        supabase.from("savings_goals").select("*"),
+        supabase.from("debts").select("*"),
+        supabase.from("plan_settings").select("*").limit(1),
+      ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
       deductions: (deductions.data ?? []) as PaycheckDeduction[],
@@ -57,6 +67,7 @@ export default function DashboardPage() {
       allocations: (allocations.data ?? []) as ObligationAllocation[],
       goals: (goals.data ?? []) as SavingsGoal[],
       debts: (debts.data ?? []) as Debt[],
+      settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
     };
   }, [supabase]);
 
@@ -66,7 +77,7 @@ export default function DashboardPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, expenses, allocations, goals, debts } = data;
+  const { sources, deductions, bills, expenses, allocations, goals, debts, settings } = data;
 
   const today = new Date();
   const rangeEnd = addDays(today, WINDOW_DAYS);
@@ -77,6 +88,18 @@ export default function DashboardPage() {
   const savings = goals
     .filter((g) => (g.per_paycheck_contribution ?? 0) > 0)
     .map((g) => ({ name: g.name, amount: g.per_paycheck_contribution as number }));
+  const strategy = settings?.strategy ?? "snowball";
+  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, []);
+  const monthlySnowball = settings?.extra_override ?? recommendSnowball(evaluation).recommended;
+  const target = currentSnowballTarget(debts, strategy);
+  const ppm = paychecksPerMonth(sources);
+  const snowball: SnowballAssignment | null =
+    target && ppm > 0 && monthlySnowball > 0
+      ? {
+          targetName: target.name,
+          perPaycheck: Math.round((monthlySnowball / ppm) * 100) / 100,
+        }
+      : null;
   const planObligations = getObligations(
     bills,
     debts,
@@ -93,7 +116,8 @@ export default function DashboardPage() {
     savings,
     today,
     rangeEnd,
-    100
+    100,
+    snowball
   );
 
   const upcomingObligations = getObligations(bills, debts, expenses, today, rangeEnd);

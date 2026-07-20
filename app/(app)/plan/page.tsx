@@ -22,24 +22,28 @@ import type {
   Expense,
   IncomeSource,
   PaycheckDeduction,
+  PlanSettings,
   SavingsGoal,
 } from "@/lib/supabase/types";
 
 export default function PlanPage() {
-  const { supabase, user } = useAuth();
-  const [strategy, setStrategy] = useState<Strategy>("avalanche");
-  const [extraOverride, setExtraOverride] = useState<number | null>(null);
+  const { supabase, user, household } = useAuth();
+  const [strategyLocal, setStrategyLocal] = useState<Strategy | null>(null);
+  const [extraLocal, setExtraLocal] = useState<number | null>(null);
+  const [extraTouched, setExtraTouched] = useState(false);
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, expenses, goals, debts, payments] = await Promise.all([
-      supabase.from("income_sources").select("*").eq("active", true),
-      supabase.from("paycheck_deductions").select("*"),
-      supabase.from("bills").select("*").eq("active", true),
-      supabase.from("expenses").select("*").eq("active", true),
-      supabase.from("savings_goals").select("*"),
-      supabase.from("debts").select("*"),
-      supabase.from("debt_payments").select("*"),
-    ]);
+    const [sources, deductions, bills, expenses, goals, debts, payments, settings] =
+      await Promise.all([
+        supabase.from("income_sources").select("*").eq("active", true),
+        supabase.from("paycheck_deductions").select("*"),
+        supabase.from("bills").select("*").eq("active", true),
+        supabase.from("expenses").select("*").eq("active", true),
+        supabase.from("savings_goals").select("*"),
+        supabase.from("debts").select("*"),
+        supabase.from("debt_payments").select("*"),
+        supabase.from("plan_settings").select("*").limit(1),
+      ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
       deductions: (deductions.data ?? []) as PaycheckDeduction[],
@@ -48,10 +52,26 @@ export default function PlanPage() {
       goals: (goals.data ?? []) as SavingsGoal[],
       debts: (debts.data ?? []) as Debt[],
       payments: (payments.data ?? []) as DebtPayment[],
+      settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
     };
   }, [supabase]);
 
   const { data } = useAsyncData(user ? load : null);
+
+  async function saveSettings(patch: Partial<Pick<PlanSettings, "strategy" | "extra_override">>) {
+    if (!user || !household) return;
+    await supabase.from("plan_settings").upsert(
+      {
+        household_id: household.id,
+        user_id: user.id,
+        strategy: strategyLocal ?? data?.settings?.strategy ?? "snowball",
+        extra_override: extraTouched ? extraLocal : (data?.settings?.extra_override ?? null),
+        updated_at: new Date().toISOString(),
+        ...patch,
+      },
+      { onConflict: "household_id" }
+    );
+  }
 
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
@@ -79,7 +99,9 @@ export default function PlanPage() {
   const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, payments);
   const recommendation = recommendSnowball(evaluation);
   const defaultExtra = recommendation.recommended;
-  const extra = extraOverride ?? defaultExtra;
+  const strategy: Strategy = strategyLocal ?? data.settings?.strategy ?? "snowball";
+  const savedOverride = extraTouched ? extraLocal : (data.settings?.extra_override ?? null);
+  const extra = savedOverride ?? defaultExtra;
   const perPaycheckDivisor = paychecksPerMonth(sources);
   const extraPerPaycheck = perPaycheckDivisor > 0 ? extra / perPaycheckDivisor : null;
 
@@ -169,6 +191,13 @@ export default function PlanPage() {
           tire doesn&apos;t sink the plan. As each debt clears, its payment joins the snowball
           automatically — you never pay more per month than you do today.
         </p>
+        <p className="mt-2 text-xs text-neutral-500">
+          Your snowball is assigned to each paycheck on{" "}
+          <Link href="/safe-to-spend" className="underline underline-offset-2">
+            Safe to Spend
+          </Link>{" "}
+          — every paycheck shows its recommended extra payment and the debt it goes to.
+        </p>
       </Card>
 
       <Card title="Your payoff plan">
@@ -179,7 +208,10 @@ export default function PlanPage() {
               {(["avalanche", "snowball"] as const).map((s) => (
                 <button
                   key={s}
-                  onClick={() => setStrategy(s)}
+                  onClick={() => {
+                    setStrategyLocal(s);
+                    void saveSettings({ strategy: s });
+                  }}
                   className={`px-3 py-2 text-sm font-medium ${
                     strategy === s
                       ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
@@ -198,13 +230,25 @@ export default function PlanPage() {
               min="0"
               step="10"
               value={extra}
-              onChange={(e) => setExtraOverride(Math.max(Number(e.target.value) || 0, 0))}
+              onChange={(e) => {
+                setExtraTouched(true);
+                setExtraLocal(Math.max(Number(e.target.value) || 0, 0));
+              }}
+              onBlur={(e) =>
+                void saveSettings({
+                  extra_override: Math.max(Number(e.target.value) || 0, 0),
+                })
+              }
               className={`${inputClass} w-36`}
             />
           </label>
-          {extraOverride !== null && extraOverride !== defaultExtra && (
+          {savedOverride !== null && savedOverride !== defaultExtra && (
             <button
-              onClick={() => setExtraOverride(null)}
+              onClick={() => {
+                setExtraTouched(true);
+                setExtraLocal(null);
+                void saveSettings({ extra_override: null });
+              }}
               className="pb-2 text-xs text-neutral-500 underline underline-offset-2"
             >
               reset to safe snowball ({formatCurrency(defaultExtra)})

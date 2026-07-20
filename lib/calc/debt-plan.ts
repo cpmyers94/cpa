@@ -269,6 +269,28 @@ export function recommendSnowball(evaluation: Evaluation): SnowballRecommendatio
 
 export type Strategy = "avalanche" | "snowball";
 
+/**
+ * The debt the snowball is attacking right now under the given strategy —
+ * what the next extra dollar should go to. BNPL plans count (balance =
+ * remaining installments), matching the simulator's targeting.
+ */
+export function currentSnowballTarget(debts: Debt[], strategy: Strategy): Debt | null {
+  const candidates = debts
+    .map((d) => ({
+      debt: d,
+      balance:
+        d.type === "bnpl" ? (d.payments_remaining ?? 0) * (d.installment_amount ?? 0) : d.balance,
+      rate: d.type === "bnpl" ? 0 : d.interest_rate,
+    }))
+    .filter((c) => c.balance > 0);
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) =>
+    strategy === "avalanche"
+      ? b.rate - a.rate || a.balance - b.balance
+      : a.balance - b.balance || b.rate - a.rate
+  )[0].debt;
+}
+
 export interface PlanPayoff {
   id: string;
   name: string;
