@@ -9,13 +9,13 @@ import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import {
-  currentSnowballTarget,
   evaluate,
   monthlyBnplObligation,
+  orderedSnowballTargets,
   paychecksPerMonth,
   recommendSnowball,
 } from "@/lib/calc/debt-plan";
-import { buildPaycheckPlan, type SnowballAssignment } from "@/lib/calc/paycheck-plan";
+import { buildPaycheckPlan, type SnowballPlanInput } from "@/lib/calc/paycheck-plan";
 import type {
   Bill,
   Debt,
@@ -81,18 +81,16 @@ export default function SafeToSpendPage() {
     .map((g) => ({ name: g.name, amount: g.per_paycheck_contribution as number }));
 
   // The household's payoff plan, resolved to a per-paycheck assignment: the
-  // monthly snowball split across paychecks, aimed at the current target debt.
+  // monthly snowball split across paychecks and simulated forward, so each
+  // paycheck aims at the debt that's actually the target on that date.
   const strategy = settings?.strategy ?? "snowball";
   const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, []);
   const monthlySnowball = settings?.extra_override ?? recommendSnowball(evaluation).recommended;
-  const target = currentSnowballTarget(debts, strategy);
+  const targets = orderedSnowballTargets(debts, strategy);
   const ppm = paychecksPerMonth(sources);
-  const snowball: SnowballAssignment | null =
-    target && ppm > 0 && monthlySnowball > 0
-      ? {
-          targetName: target.name,
-          perPaycheck: Math.round((monthlySnowball / ppm) * 100) / 100,
-        }
+  const snowball: SnowballPlanInput | null =
+    targets.length > 0 && ppm > 0 && monthlySnowball > 0
+      ? { perPaycheck: Math.round((monthlySnowball / ppm) * 100) / 100, targets }
       : null;
 
   const plan = buildPaycheckPlan(
@@ -199,20 +197,29 @@ export default function SafeToSpendPage() {
                       <span>−{formatCurrency(entry.budgetReserve)}</span>
                     </div>
                   )}
-                  {entry.snowball && (
-                    <div className="flex items-center justify-between font-medium text-purple-700 dark:text-purple-300">
+                  {entry.snowball.map((part, i) => (
+                    <div
+                      key={`snow${i}`}
+                      className="flex items-center justify-between font-medium text-purple-700 dark:text-purple-300"
+                    >
                       <span className="flex items-center gap-2">
                         <span className="inline-block h-2 w-2 rounded-full bg-purple-500" />
-                        Snowball → {entry.snowball.targetName}
-                        <span className="font-normal text-neutral-400">recommended</span>
+                        Snowball → {part.targetName}
+                        {part.paysOff ? (
+                          <span className="font-normal text-emerald-600 dark:text-emerald-400">
+                            pays it off! 🎉
+                          </span>
+                        ) : (
+                          <span className="font-normal text-neutral-400">recommended</span>
+                        )}
                       </span>
-                      <span>−{formatCurrency(entry.snowball.amount)}</span>
+                      <span>−{formatCurrency(part.amount)}</span>
                     </div>
-                  )}
+                  ))}
                   {entry.assigned.length === 0 &&
                     entry.savings.length === 0 &&
                     entry.budgetReserve === 0 &&
-                    !entry.snowball && (
+                    entry.snowball.length === 0 && (
                       <p className="text-neutral-400">Nothing assigned to this paycheck yet.</p>
                     )}
                 </div>

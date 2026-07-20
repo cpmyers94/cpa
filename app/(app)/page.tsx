@@ -9,12 +9,12 @@ import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import {
-  currentSnowballTarget,
   evaluate,
+  orderedSnowballTargets,
   paychecksPerMonth,
   recommendSnowball,
 } from "@/lib/calc/debt-plan";
-import { buildPaycheckPlan, type SnowballAssignment } from "@/lib/calc/paycheck-plan";
+import { buildPaycheckPlan, type SnowballPlanInput } from "@/lib/calc/paycheck-plan";
 import type {
   Bill,
   Debt,
@@ -91,14 +91,11 @@ export default function DashboardPage() {
   const strategy = settings?.strategy ?? "snowball";
   const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, []);
   const monthlySnowball = settings?.extra_override ?? recommendSnowball(evaluation).recommended;
-  const target = currentSnowballTarget(debts, strategy);
+  const targets = orderedSnowballTargets(debts, strategy);
   const ppm = paychecksPerMonth(sources);
-  const snowball: SnowballAssignment | null =
-    target && ppm > 0 && monthlySnowball > 0
-      ? {
-          targetName: target.name,
-          perPaycheck: Math.round((monthlySnowball / ppm) * 100) / 100,
-        }
+  const snowball: SnowballPlanInput | null =
+    targets.length > 0 && ppm > 0 && monthlySnowball > 0
+      ? { perPaycheck: Math.round((monthlySnowball / ppm) * 100) / 100, targets }
       : null;
   const planObligations = getObligations(
     bills,

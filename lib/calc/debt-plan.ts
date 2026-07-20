@@ -270,25 +270,30 @@ export function recommendSnowball(evaluation: Evaluation): SnowballRecommendatio
 export type Strategy = "avalanche" | "snowball";
 
 /**
- * The debt the snowball is attacking right now under the given strategy —
- * what the next extra dollar should go to. BNPL plans count (balance =
- * remaining installments), matching the simulator's targeting.
+ * Debts in the order the strategy attacks them — [0] is the current target,
+ * the next extra dollar's destination. BNPL plans count (balance = remaining
+ * installments), matching the simulator's targeting. Snowball orders by
+ * smallest balance first; avalanche by highest rate first.
  */
-export function currentSnowballTarget(debts: Debt[], strategy: Strategy): Debt | null {
-  const candidates = debts
+export function orderedSnowballTargets(
+  debts: Debt[],
+  strategy: Strategy
+): { id: string; name: string; balance: number }[] {
+  return debts
     .map((d) => ({
-      debt: d,
+      id: d.id,
+      name: d.name,
       balance:
         d.type === "bnpl" ? (d.payments_remaining ?? 0) * (d.installment_amount ?? 0) : d.balance,
       rate: d.type === "bnpl" ? 0 : d.interest_rate,
     }))
-    .filter((c) => c.balance > 0);
-  if (candidates.length === 0) return null;
-  return candidates.sort((a, b) =>
-    strategy === "avalanche"
-      ? b.rate - a.rate || a.balance - b.balance
-      : a.balance - b.balance || b.rate - a.rate
-  )[0].debt;
+    .filter((c) => c.balance > 0)
+    .sort((a, b) =>
+      strategy === "avalanche"
+        ? b.rate - a.rate || a.balance - b.balance
+        : a.balance - b.balance || b.rate - a.rate
+    )
+    .map(({ id, name, balance }) => ({ id, name, balance }));
 }
 
 export interface PlanPayoff {
