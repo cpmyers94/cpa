@@ -239,19 +239,51 @@ function fmt(n: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Payoff simulation. BNPL plans run on their fixed schedules; as each one
-// (or any revolving debt) is finished, its payment rolls into the target
-// debt chosen by the strategy. Total monthly outlay stays constant.
+// Safe snowball recommendation: how much extra per month can comfortably go
+// toward debt. Start from the real surplus (income − bills − expenses −
+// savings − committed debt payments) and hold back a cushion so one surprise
+// doesn't sink the plan.
+// ---------------------------------------------------------------------------
+
+export interface SnowballRecommendation {
+  surplus: number; // monthly surplus the budget shows
+  buffer: number; // cushion held back for surprises
+  recommended: number; // safe monthly snowball (never negative)
+}
+
+export function recommendSnowball(evaluation: Evaluation): SnowballRecommendation {
+  const buffer = Math.max(Math.round(evaluation.income * 0.1), 100);
+  const recommended = Math.max(Math.floor((evaluation.surplus - buffer) / 10) * 10, 0);
+  return { surplus: evaluation.surplus, buffer, recommended };
+}
+
+// ---------------------------------------------------------------------------
+// Payoff simulation. Every debt is a payoff target — including BNPL plans,
+// which can be paid off early (their balance is the remaining installments;
+// at 0% there's no interest to save, but finishing one frees its payment).
+// Snowball targets the smallest balance, so a small BNPL plan ranks ahead of
+// a bigger card; avalanche targets the highest rate, so 0% BNPL naturally
+// waits. As each debt clears, its payment rolls into the snowball — total
+// monthly outlay stays constant while the amount attacking the target grows.
 // ---------------------------------------------------------------------------
 
 export type Strategy = "avalanche" | "snowball";
+
+export interface PlanPayoff {
+  id: string;
+  name: string;
+  month: number;
+  type: "bnpl" | "revolving";
+  freed: number; // monthly payment this payoff frees
+  snowballAfter: number; // extra + all freed payments once this debt clears
+}
 
 export interface PlanResult {
   feasible: boolean;
   months: number; // months until debt-free (capped)
   totalInterest: number;
   budget: number; // constant monthly outlay the plan assumes
-  payoffs: { id: string; name: string; month: number; type: "bnpl" | "revolving" }[];
+  payoffs: PlanPayoff[];
   capped: boolean;
 }
 
@@ -261,37 +293,39 @@ export function simulatePayoff(
   strategy: Strategy,
   rollover = true
 ): PlanResult {
-  const revolving = debts
-    .filter((d) => d.type !== "bnpl" && d.balance > 0)
-    .map((d) => ({
-      id: d.id,
-      name: d.name,
-      balance: d.balance,
-      rate: d.interest_rate / 100 / 12,
-      min: d.minimum_payment,
-      paidOffMonth: 0,
-    }));
-  const bnpl = debts
-    .filter((d) => d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
-    .map((d) => ({
-      id: d.id,
-      name: d.name,
-      remaining: d.payments_remaining ?? 0,
-      installment: d.installment_amount ?? 0,
-      perMonth: bnplPaymentsPerMonth(d),
-      paidOffMonth: 0,
-    }));
+  const items = [
+    ...debts
+      .filter((d) => d.type !== "bnpl" && d.balance > 0)
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        type: "revolving" as const,
+        balance: d.balance,
+        rate: d.interest_rate / 100 / 12,
+        min: d.minimum_payment,
+        paidOffMonth: 0,
+      })),
+    ...debts
+      .filter((d) => d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        type: "bnpl" as const,
+        balance: (d.payments_remaining ?? 0) * (d.installment_amount ?? 0),
+        rate: 0,
+        min: bnplPaymentsPerMonth(d) * (d.installment_amount ?? 0),
+        paidOffMonth: 0,
+      })),
+  ];
 
-  const startMinimums = sum(revolving.map((d) => d.min));
-  const startBnpl = sum(bnpl.map((b) => Math.min(b.perMonth, b.remaining) * b.installment));
-  const budget = startMinimums + startBnpl + extraPerMonth;
+  const budget = sum(items.map((d) => Math.min(d.min, d.balance))) + extraPerMonth;
 
   let month = 0;
   let totalInterest = 0;
   let feasible = true;
   const CAP = 600;
 
-  const active = () => revolving.filter((d) => d.balance > 0.005);
+  const active = () => items.filter((d) => d.balance > 0.005);
   const pickTarget = () => {
     const candidates = active();
     if (candidates.length === 0) return null;
@@ -302,25 +336,17 @@ export function simulatePayoff(
     )[0];
   };
 
-  while (month < CAP && (active().length > 0 || bnpl.some((b) => b.remaining > 0))) {
+  while (month < CAP && active().length > 0) {
     month += 1;
 
-    // 1. BNPL installments due this month (fixed, non-negotiable).
-    let bnplDue = 0;
-    for (const b of bnpl) {
-      if (b.remaining === 0) continue;
-      const count = Math.min(b.perMonth, b.remaining);
-      bnplDue += count * b.installment;
-      b.remaining -= count;
-      if (b.remaining === 0) b.paidOffMonth = month;
-    }
-
-    // 2. Interest accrues, minimums get paid.
-    let paidThisMonth = bnplDue;
+    // 1. Interest accrues, minimums / installments get paid.
+    let paidThisMonth = 0;
     for (const d of active()) {
-      const interest = d.balance * d.rate;
-      totalInterest += interest;
-      d.balance += interest;
+      if (d.rate > 0) {
+        const interest = d.balance * d.rate;
+        totalInterest += interest;
+        d.balance += interest;
+      }
       const payment = Math.min(d.min, d.balance);
       d.balance -= payment;
       paidThisMonth += payment;
@@ -332,7 +358,8 @@ export function simulatePayoff(
 
     if (paidThisMonth > budget + 0.01) feasible = false;
 
-    // 3. Whatever's left of the fixed budget attacks the target debt(s).
+    // 2. Whatever's left of the fixed budget — the snowball — attacks the
+    // target debt(s) chosen by the strategy.
     if (rollover) {
       let pool = Math.max(budget - paidThisMonth, 0);
       let target = pickTarget();
@@ -349,20 +376,21 @@ export function simulatePayoff(
     }
   }
 
-  const payoffs = [
-    ...bnpl.map((b) => ({
-      id: b.id,
-      name: b.name,
-      month: b.paidOffMonth || month,
-      type: "bnpl" as const,
-    })),
-    ...revolving.map((d) => ({
-      id: d.id,
-      name: d.name,
-      month: d.paidOffMonth || month,
-      type: "revolving" as const,
-    })),
-  ].sort((a, b) => a.month - b.month);
+  let snowball = extraPerMonth;
+  const payoffs = items
+    .slice()
+    .sort((a, b) => (a.paidOffMonth || month) - (b.paidOffMonth || month))
+    .map((d) => {
+      snowball += d.min;
+      return {
+        id: d.id,
+        name: d.name,
+        month: d.paidOffMonth || month,
+        type: d.type,
+        freed: Math.round(d.min * 100) / 100,
+        snowballAfter: Math.round(snowball * 100) / 100,
+      };
+    });
 
   return {
     feasible,

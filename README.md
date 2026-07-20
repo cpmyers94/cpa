@@ -35,8 +35,11 @@ only ever sees its own data.
   covers them (manually or via one-click auto-assign), shown together on the
   calendar and dashboard.
 - **Plan** — evaluates your monthly cash flow (income vs. bills, expenses,
-  goals, and debt payments) and simulates a get-out-of-debt payoff (avalanche
-  or snowball, BNPL plans on their fixed schedules).
+  goals, and debt payments), recommends a safe starting snowball (surplus
+  minus a comfort cushion, shown per paycheck), and simulates a
+  get-out-of-debt payoff (avalanche or snowball — BNPL plans are payable
+  early too). Each cleared debt rolls its payment into the snowball, and a
+  step-by-step detail page shows the snowball growing payoff by payoff.
 - **Households** — share one consolidated budget across multiple accounts.
   Each person signs in with their own login; an invite code links them into a
   household, and everyone sees a combined view of all paychecks, bills, goals,

@@ -10,6 +10,8 @@ import { Card, inputClass } from "@/components/card";
 import { formatCurrency } from "@/lib/calc/money";
 import {
   evaluate,
+  paychecksPerMonth,
+  recommendSnowball,
   simulatePayoff,
   type Strategy,
 } from "@/lib/calc/debt-plan";
@@ -75,8 +77,11 @@ export default function PlanPage() {
   }
 
   const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, payments);
-  const defaultExtra = Math.max(Math.floor(evaluation.surplus), 0);
+  const recommendation = recommendSnowball(evaluation);
+  const defaultExtra = recommendation.recommended;
   const extra = extraOverride ?? defaultExtra;
+  const perPaycheckDivisor = paychecksPerMonth(sources);
+  const extraPerPaycheck = perPaycheckDivisor > 0 ? extra / perPaycheckDivisor : null;
 
   const plan = simulatePayoff(activeDebts, extra, strategy);
   const minimumsOnly = simulatePayoff(activeDebts, 0, "avalanche", false);
@@ -138,6 +143,34 @@ export default function PlanPage() {
         </Card>
       )}
 
+      <Card title="Your starting snowball">
+        <p className="text-sm text-neutral-700 dark:text-neutral-300">
+          A safe, comfortable amount to throw at debt beyond the minimums — computed from your real
+          budget, not a guess:
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+          <Stat label="Monthly surplus" value={recommendation.surplus} />
+          <Stat label="Cushion held back" value={recommendation.buffer} negative />
+          <div>
+            <p className="text-xs text-neutral-500">Safe snowball</p>
+            <p className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+              {formatCurrency(recommendation.recommended)}/mo
+            </p>
+            {perPaycheckDivisor > 0 && (
+              <p className="text-xs text-neutral-500">
+                ≈ {formatCurrency(Math.round(recommendation.recommended / perPaycheckDivisor))} per
+                paycheck
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-neutral-500">
+          The cushion (10% of income, at least $100) stays in your pocket for surprises so one flat
+          tire doesn&apos;t sink the plan. As each debt clears, its payment joins the snowball
+          automatically — you never pay more per month than you do today.
+        </p>
+      </Card>
+
       <Card title="Your payoff plan">
         <div className="flex flex-wrap items-end gap-4">
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
@@ -159,7 +192,7 @@ export default function PlanPage() {
             </div>
           </label>
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
-            Extra toward debt each month
+            Snowball (extra/mo)
             <input
               type="number"
               min="0"
@@ -174,17 +207,20 @@ export default function PlanPage() {
               onClick={() => setExtraOverride(null)}
               className="pb-2 text-xs text-neutral-500 underline underline-offset-2"
             >
-              reset to computed surplus ({formatCurrency(defaultExtra)})
+              reset to safe snowball ({formatCurrency(defaultExtra)})
             </button>
           )}
         </div>
 
         <p className="mt-2 text-xs text-neutral-500">
           {strategy === "avalanche"
-            ? "Avalanche: highest interest rate first — the mathematically cheapest path."
-            : "Snowball: smallest balance first — quicker wins, usually a little more interest."}{" "}
-          BNPL plans pay out on their fixed schedules; every finished payment rolls into the next
-          debt, keeping your total outlay at {formatCurrency(plan.budget)}/mo.
+            ? "Avalanche: highest interest rate first — the mathematically cheapest path. 0% BNPL plans wait their turn while high-interest debt burns."
+            : "Snowball: smallest balance first — including BNPL plans, which you can pay off early to free their installment sooner."}{" "}
+          Every cleared debt rolls its payment into the snowball, keeping your total outlay at{" "}
+          {formatCurrency(plan.budget)}/mo
+          {extraPerPaycheck !== null &&
+            ` (snowball ≈ ${formatCurrency(Math.round(extraPerPaycheck))} per paycheck)`}
+          .
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
@@ -227,22 +263,36 @@ export default function PlanPage() {
           </h3>
           <ol className="mt-2 flex flex-col gap-1 text-sm">
             {plan.payoffs.map((p, i) => (
-              <li key={p.id} className="flex items-center justify-between py-1">
+              <li key={p.id} className="flex items-center justify-between gap-3 py-1">
                 <span>
                   <span className="mr-2 inline-block w-5 text-right text-neutral-400">
                     {i + 1}.
                   </span>
                   {p.name}
                   {p.type === "bnpl" && (
-                    <span className="ml-2 text-xs text-neutral-400">BNPL · fixed schedule</span>
+                    <span className="ml-2 text-xs text-neutral-400">BNPL</span>
                   )}
                 </span>
-                <span className="text-neutral-500">
-                  {plan.capped ? "—" : format(addMonths(today, p.month), "MMM yyyy")}
+                <span className="text-right text-xs text-neutral-500">
+                  <span className="block text-sm">
+                    {plan.capped ? "—" : format(addMonths(today, p.month), "MMM yyyy")}
+                  </span>
+                  {p.freed > 0 && (
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      frees {formatCurrency(p.freed)}/mo → snowball{" "}
+                      {formatCurrency(p.snowballAfter)}/mo
+                    </span>
+                  )}
                 </span>
               </li>
             ))}
           </ol>
+          <Link
+            href={`/plan/payoff?strategy=${strategy}&extra=${extra}`}
+            className="mt-4 inline-block text-sm font-medium underline underline-offset-2"
+          >
+            See the detailed step-by-step plan →
+          </Link>
         </div>
       </Card>
     </div>
