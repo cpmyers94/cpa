@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card, inputClass, ghostButtonClass } from "@/components/card";
-import { formatCurrency } from "@/lib/calc/money";
+import { formatCurrency, formatDate } from "@/lib/calc/money";
 import type { SavingsGoal } from "@/lib/supabase/types";
 import { GoalForm } from "./goal-form";
 import { addContribution, deleteGoal } from "./mutations";
@@ -12,11 +12,10 @@ import { addContribution, deleteGoal } from "./mutations";
 function monthsUntil(targetDate: string | null): number | null {
   if (!targetDate) return null;
   const now = new Date();
-  const target = new Date(targetDate);
-  return Math.max(
-    (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth()),
-    0
-  );
+  // Parse as local calendar parts so the month isn't pulled back a day (and
+  // sometimes a whole month) by UTC parsing in negative-offset timezones.
+  const [y, m] = targetDate.split("-").map(Number);
+  return Math.max((y - now.getFullYear()) * 12 + (m - 1 - now.getMonth()), 0);
 }
 
 function ContributionForm({
@@ -160,7 +159,7 @@ export default function GoalsPage() {
                   </div>
                   <p className="mt-2 text-xs text-neutral-500">
                     {goal.target_date &&
-                      `Target: ${new Date(goal.target_date).toLocaleDateString()}`}
+                      `Target: ${formatDate(goal.target_date)}`}
                     {neededPerMonth !== null && ` · needs ~${formatCurrency(neededPerMonth)}/mo`}
                     {goal.per_paycheck_contribution &&
                       ` · ${formatCurrency(goal.per_paycheck_contribution)}/paycheck`}

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { addDays, addMonths, format } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { Card, inputClass, ghostButtonClass } from "@/components/card";
-import { formatCurrency, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
+import { formatCurrency, formatDate, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
 import type { Debt } from "@/lib/supabase/types";
 import { addPayment, deleteDebt, payBnplInstallment } from "./mutations";
 import { DebtForm } from "./debt-form";
@@ -28,7 +28,10 @@ const FREQUENCY_LABEL: Record<string, string> = {
 
 function bnplCompletionDate(debt: Debt): Date | null {
   if (!debt.next_payment_date || !debt.payments_remaining) return null;
-  const start = new Date(debt.next_payment_date);
+  // Parse as a local-midnight calendar date so date-fns math and format() don't
+  // drift a day in negative-offset timezones (new Date("yyyy-mm-dd") is UTC).
+  const [y, m, d] = debt.next_payment_date.split("-").map(Number);
+  const start = new Date(y, m - 1, d);
   const steps = debt.payments_remaining - 1;
   if (debt.installment_frequency === "weekly") return addDays(start, steps * 7);
   if (debt.installment_frequency === "biweekly") return addDays(start, steps * 14);
@@ -62,8 +65,7 @@ function BnplBody({ debt, editable, onChanged }: { debt: Debt; editable: boolean
             {FREQUENCY_LABEL[debt.installment_frequency ?? "monthly"]}
           </p>
           <p className="mt-1 text-xs text-neutral-500">
-            {debt.next_payment_date &&
-              `Next payment ${new Date(debt.next_payment_date).toLocaleDateString()}`}
+            {debt.next_payment_date && `Next payment ${formatDate(debt.next_payment_date)}`}
             {done && ` · paid off ${format(done, "MMM d, yyyy")}`}
           </p>
           {editable && (

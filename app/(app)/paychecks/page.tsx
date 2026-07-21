@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
-import { formatCurrency, sum } from "@/lib/calc/money";
+import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { nextPaycheckDate } from "@/lib/calc/schedule";
 import type { IncomeSource, PaycheckDeduction } from "@/lib/supabase/types";
 import { IncomeSourceForm } from "./income-source-form";
@@ -87,7 +87,7 @@ export default function PaychecksPage() {
                   </h3>
                   <p className="text-xs text-neutral-500">
                     {FREQUENCY_LABEL[source.frequency]}
-                    {next && ` · next paycheck ${next.toLocaleDateString()}`}
+                    {next && ` · next paycheck ${formatDate(next.toISOString().slice(0, 10))}`}
                   </p>
                 </div>
                 <div className="text-right">
