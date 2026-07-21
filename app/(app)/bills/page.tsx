@@ -5,7 +5,7 @@ import { addDays } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card, ghostButtonClass } from "@/components/card";
-import { formatCurrency } from "@/lib/calc/money";
+import { formatCurrency, formatDate } from "@/lib/calc/money";
 import { getPaycheckOccurrences } from "@/lib/calc/schedule";
 import { getObligations, type Obligation } from "@/lib/calc/obligations";
 import { pickPaycheckForDueDate } from "@/lib/calc/allocate";
@@ -152,7 +152,7 @@ export default function BillsPage() {
                     </span>
                   </p>
                   <p className="text-xs text-neutral-500">
-                    Due {new Date(ob.date).toLocaleDateString()} · {ob.category}
+                    Due {formatDate(ob.date)} · {ob.category}
                     {isShared && ` · ${nameFor(ob.userId)}`}
                   </p>
                 </div>

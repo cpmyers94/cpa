@@ -6,7 +6,7 @@ import { addDays } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
-import { formatCurrency, sum } from "@/lib/calc/money";
+import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import {
   evaluate,
@@ -189,7 +189,7 @@ export default function DashboardPage() {
             {upcomingPaychecks.map((p, i) => (
               <li key={i} className="flex items-center justify-between py-2">
                 <span>
-                  {p.incomeSourceName} · {new Date(p.date).toLocaleDateString()}
+                  {p.incomeSourceName} · {formatDate(p.date)}
                 </span>
                 <span className="text-right">
                   <span className="block font-medium">{formatCurrency(p.net)}</span>
@@ -220,7 +220,7 @@ export default function DashboardPage() {
             {upcomingObligations.map((ob, i) => (
               <li key={i} className="flex items-center justify-between py-2">
                 <span>
-                  {ob.name} · {new Date(ob.date).toLocaleDateString()}
+                  {ob.name} · {formatDate(ob.date)}
                 </span>
                 <span className="font-medium">{formatCurrency(ob.amount)}</span>
               </li>

@@ -66,7 +66,9 @@ export default function CalendarPage() {
 
   for (const source of sources) {
     for (const date of getPaycheckOccurrences(source, gridStart, gridEnd)) {
-      pushEvent(format(date, "yyyy-MM-dd"), {
+      // Key by the same UTC-derived calendar day the obligations use, so a
+      // payday lands on the right cell regardless of the viewer's timezone.
+      pushEvent(date.toISOString().slice(0, 10), {
         label: source.name,
         amount: source.gross_amount,
         kind: "pay",

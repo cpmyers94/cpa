@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { inputClass } from "@/components/card";
-import { formatCurrency } from "@/lib/calc/money";
+import { formatCurrency, formatDate } from "@/lib/calc/money";
 import { daysOfDebtFreedom, type PaycheckPlanEntry } from "@/lib/calc/paycheck-plan";
 
 export function Affordability({
@@ -52,7 +52,7 @@ export function Affordability({
           >
             {entries.map((en, i) => (
               <option key={`${en.incomeSourceId}-${en.date}`} value={i}>
-                {en.incomeSourceName} · {new Date(en.date).toLocaleDateString()}
+                {en.incomeSourceName} · {formatDate(en.date)}
               </option>
             ))}
           </select>
@@ -70,7 +70,7 @@ export function Affordability({
           <p className="text-base font-semibold">
             {newFree >= 0
               ? `Yes — you'd have ${formatCurrency(newFree)} free on that paycheck.`
-              : `That would put the ${new Date(entry.date).toLocaleDateString()} paycheck ${formatCurrency(
+              : `That would put the ${formatDate(entry.date)} paycheck ${formatCurrency(
                   Math.abs(newFree)
                 )} short.`}
           </p>

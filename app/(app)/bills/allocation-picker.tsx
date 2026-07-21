@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/components/auth";
 import { inputClass, ghostButtonClass } from "@/components/card";
+import { formatDate } from "@/lib/calc/money";
 import type { ObligationType } from "@/lib/supabase/types";
 import { allocateObligation, unallocateObligation } from "./mutations";
 
@@ -28,8 +29,7 @@ export function AllocationPicker({
     return (
       <div className="flex items-center gap-2 text-xs text-neutral-500">
         <span>
-          Covered by {current.incomeSourceName} ·{" "}
-          {new Date(current.paycheckDate).toLocaleDateString()}
+          Covered by {current.incomeSourceName} · {formatDate(current.paycheckDate)}
         </span>
         <button
           onClick={async () => {
@@ -74,7 +74,7 @@ export function AllocationPicker({
         </option>
         {options.map((o) => (
           <option key={`${o.incomeSourceId}|${o.date}`} value={`${o.incomeSourceId}|${o.date}`}>
-            {o.incomeSourceName} · {new Date(o.date).toLocaleDateString()}
+            {o.incomeSourceName} · {formatDate(o.date)}
           </option>
         ))}
       </select>

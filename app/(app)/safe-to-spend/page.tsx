@@ -6,7 +6,7 @@ import { addDays } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
-import { formatCurrency, sum } from "@/lib/calc/money";
+import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import {
   evaluate,
@@ -145,7 +145,7 @@ export default function SafeToSpendPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-sm font-semibold">
-                      {new Date(entry.date).toLocaleDateString(undefined, {
+                      {formatDate(entry.date, {
                         weekday: "short",
                         month: "short",
                         day: "numeric",

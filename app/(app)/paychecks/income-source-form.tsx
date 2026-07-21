@@ -24,7 +24,7 @@ export function IncomeSourceForm({
     const form = event.currentTarget;
     const formData = new FormData(form);
     if (editing) {
-      await updateIncomeSource(supabase, editing.id, formData);
+      await updateIncomeSource(supabase, editing.id, formData, editing);
     } else {
       await addIncomeSource(supabase, user.id, formData);
       form.reset();
