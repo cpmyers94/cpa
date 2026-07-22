@@ -113,6 +113,10 @@ export interface Debt extends Owned {
   payments_remaining: number | null;
   installment_frequency: InstallmentFrequency | null;
   next_payment_date: string | null;
+  // Early-payoff / settlement amount — what it costs to clear the plan today
+  // (less than the remaining installments for interest-bearing BNPL). Null =
+  // no discount known, so the scheduled total stands in.
+  settlement_amount: number | null;
   created_at: string;
 }
 

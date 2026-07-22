@@ -102,6 +102,21 @@ function bnplPaymentsPerMonth(debt: Debt): number {
   }
 }
 
+/** Sum of a BNPL plan's remaining scheduled installments (the "ride it out" total). */
+export function bnplScheduledTotal(debt: Debt): number {
+  return (debt.payments_remaining ?? 0) * (debt.installment_amount ?? 0);
+}
+
+/**
+ * What you'd owe to clear a debt today. For BNPL that's the settlement amount
+ * when known (the lender's early-payoff, which waives unearned interest);
+ * otherwise the sum of remaining installments. For everything else, the balance.
+ */
+export function debtPayoff(debt: Debt): number {
+  if (debt.type === "bnpl") return debt.settlement_amount ?? bnplScheduledTotal(debt);
+  return debt.balance;
+}
+
 /** Current monthly BNPL obligation across all active plans. */
 export function monthlyBnplObligation(debts: Debt[]): number {
   return sum(
@@ -283,8 +298,7 @@ export function orderedSnowballTargets(
     .map((d) => ({
       id: d.id,
       name: d.name,
-      balance:
-        d.type === "bnpl" ? (d.payments_remaining ?? 0) * (d.installment_amount ?? 0) : d.balance,
+      balance: debtPayoff(d),
       rate: d.type === "bnpl" ? 0 : d.interest_rate,
     }))
     .filter((c) => c.balance > 0)
@@ -330,19 +344,31 @@ export function simulatePayoff(
         balance: d.balance,
         rate: d.interest_rate / 100 / 12,
         min: d.minimum_payment,
+        // Revolving: the whole minimum reduces the balance (after interest).
+        principalCap: Number.POSITIVE_INFINITY,
         paidOffMonth: 0,
       })),
     ...debts
       .filter((d) => d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
-      .map((d) => ({
-        id: d.id,
-        name: d.name,
-        type: "bnpl" as const,
-        balance: (d.payments_remaining ?? 0) * (d.installment_amount ?? 0),
-        rate: 0,
-        min: bnplPaymentsPerMonth(d) * (d.installment_amount ?? 0),
-        paidOffMonth: 0,
-      })),
+      .map((d) => {
+        const ppm = bnplPaymentsPerMonth(d);
+        const monthlyCash = ppm * (d.installment_amount ?? 0);
+        // Balance is the early-payoff (settlement); installments pay it down at
+        // the amortized rate so it still clears over the scheduled months, while
+        // the snowball can settle the whole thing early for the payoff figure.
+        const payoff = debtPayoff(d);
+        const monthsLeft = Math.max((d.payments_remaining ?? 0) / ppm, 1);
+        return {
+          id: d.id,
+          name: d.name,
+          type: "bnpl" as const,
+          balance: payoff,
+          rate: 0,
+          min: monthlyCash,
+          principalCap: payoff / monthsLeft,
+          paidOffMonth: 0,
+        };
+      }),
   ];
 
   const budget = sum(items.map((d) => Math.min(d.min, d.balance))) + extraPerMonth;
@@ -374,9 +400,14 @@ export function simulatePayoff(
         totalInterest += interest;
         d.balance += interest;
       }
-      const payment = Math.min(d.min, d.balance);
-      d.balance -= payment;
-      paidThisMonth += payment;
+      // Balance can only drop by the scheduled principal (all of it for
+      // revolving; the amortized share for BNPL). The cash paid is the full
+      // installment; the gap is BNPL interest you avoid by settling early.
+      const principal = Math.min(d.min, d.principalCap, d.balance);
+      const cash = d.principalCap === principal ? d.min : principal;
+      d.balance -= principal;
+      totalInterest += Math.max(cash - principal, 0);
+      paidThisMonth += cash;
       if (d.balance <= 0.005) {
         d.balance = 0;
         d.paidOffMonth = month;

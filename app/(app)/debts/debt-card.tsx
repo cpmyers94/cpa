@@ -5,6 +5,7 @@ import { addDays, addMonths, format } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { Card, inputClass, ghostButtonClass } from "@/components/card";
 import { formatCurrency, formatDate, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
+import { bnplScheduledTotal, debtPayoff } from "@/lib/calc/debt-plan";
 import type { Debt } from "@/lib/supabase/types";
 import { addPayment, deleteDebt, payBnplInstallment } from "./mutations";
 import { DebtForm } from "./debt-form";
@@ -64,6 +65,19 @@ function BnplBody({ debt, editable, onChanged }: { debt: Debt; editable: boolean
             {formatCurrency(debt.installment_amount ?? 0)} left ·{" "}
             {FREQUENCY_LABEL[debt.installment_frequency ?? "monthly"]}
           </p>
+          {debt.settlement_amount != null && (
+            <p className="mt-1 text-xs text-neutral-500">
+              Settle today {formatCurrency(debt.settlement_amount)} ·{" "}
+              {formatCurrency(bnplScheduledTotal(debt))} on schedule
+              {bnplScheduledTotal(debt) - debt.settlement_amount > 0.005 && (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  {" "}
+                  · save {formatCurrency(bnplScheduledTotal(debt) - debt.settlement_amount)} by paying
+                  early
+                </span>
+              )}
+            </p>
+          )}
           <p className="mt-1 text-xs text-neutral-500">
             {debt.next_payment_date && `Next payment ${formatDate(debt.next_payment_date)}`}
             {done && ` · paid off ${format(done, "MMM d, yyyy")}`}
@@ -191,10 +205,14 @@ export function DebtCard({
           </p>
         </div>
         <div className="text-right">
-          <p className="text-lg font-semibold">{formatCurrency(debt.balance)}</p>
+          <p className="text-lg font-semibold">
+            {formatCurrency(isBnpl ? debtPayoff(debt) : debt.balance)}
+          </p>
           <p className="text-xs text-neutral-500">
             {isBnpl
-              ? `${formatCurrency(debt.installment_amount ?? 0)} per payment`
+              ? debt.settlement_amount != null
+                ? "payoff today"
+                : `${formatCurrency(debt.installment_amount ?? 0)} per payment`
               : `min ${formatCurrency(debt.minimum_payment)}/mo`}
           </p>
         </div>

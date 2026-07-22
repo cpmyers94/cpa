@@ -5,7 +5,7 @@ import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
-import { monthlyBnplObligation } from "@/lib/calc/debt-plan";
+import { debtPayoff, monthlyBnplObligation } from "@/lib/calc/debt-plan";
 import type { Debt } from "@/lib/supabase/types";
 import { DebtForm } from "./debt-form";
 import { DebtCard } from "./debt-card";
@@ -24,7 +24,7 @@ export default function DebtsPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const totalBalance = sum(debts.map((d) => d.balance));
+  const totalBalance = sum(debts.map(debtPayoff));
   const totalMinimum =
     sum(debts.map((d) => d.minimum_payment)) + monthlyBnplObligation(debts);
   // BNPL plans run on fixed schedules, so they don't participate in

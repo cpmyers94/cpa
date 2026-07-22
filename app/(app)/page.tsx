@@ -9,6 +9,7 @@ import { Card } from "@/components/card";
 import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import {
+  debtPayoff,
   evaluate,
   orderedSnowballTargets,
   paychecksPerMonth,
@@ -133,7 +134,7 @@ export default function DashboardPage() {
       )
   ).length;
 
-  const totalDebt = sum(debts.map((d) => d.balance));
+  const totalDebt = sum(debts.map(debtPayoff));
   const totalSaved = sum(goals.map((g) => g.current_amount));
   const goalTarget = sum(goals.map((g) => g.target_amount ?? 0));
 

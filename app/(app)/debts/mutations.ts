@@ -11,6 +11,9 @@ function debtPayload(formData: FormData) {
     // installment amount and how many payments remain.
     const installment = Number(formData.get("installment_amount"));
     const remaining = Number(formData.get("payments_remaining"));
+    const settlement = formData.get("settlement_amount")
+      ? Number(formData.get("settlement_amount"))
+      : null;
     return {
       name: String(formData.get("name")),
       type,
@@ -24,6 +27,7 @@ function debtPayload(formData: FormData) {
         formData.get("installment_frequency")
       ) as InstallmentFrequency,
       next_payment_date: String(formData.get("next_payment_date")) || null,
+      settlement_amount: settlement,
     };
   }
 
@@ -38,6 +42,7 @@ function debtPayload(formData: FormData) {
     payments_remaining: null,
     installment_frequency: null,
     next_payment_date: null,
+    settlement_amount: null,
   };
 }
 
@@ -87,7 +92,14 @@ export async function payBnplInstallment(
   debt: Debt
 ) {
   const installment = debt.installment_amount ?? 0;
-  const remaining = Math.max((debt.payments_remaining ?? 0) - 1, 0);
+  const before = debt.payments_remaining ?? 0;
+  const remaining = Math.max(before - 1, 0);
+  // Settling early gets cheaper as installments are paid; amortize the payoff
+  // down so it lands on 0 with the final installment.
+  const settlement =
+    debt.settlement_amount == null || before <= 0
+      ? debt.settlement_amount
+      : Math.round(((debt.settlement_amount * remaining) / before) * 100) / 100;
 
   await supabase.from("debt_payments").insert({
     user_id: userId,
@@ -113,6 +125,7 @@ export async function payBnplInstallment(
       balance: Math.max(Math.round((debt.balance - installment) * 100) / 100, 0),
       payments_remaining: remaining,
       next_payment_date: nextDate,
+      settlement_amount: settlement,
     })
     .eq("id", debt.id);
 }

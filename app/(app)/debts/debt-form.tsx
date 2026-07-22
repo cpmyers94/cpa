@@ -107,6 +107,18 @@ export function DebtForm({
               className={inputClass}
             />
           </label>
+          <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+            Payoff today (optional)
+            <input
+              name="settlement_amount"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="e.g. 155.46"
+              defaultValue={editing?.settlement_amount ?? undefined}
+              className={inputClass}
+            />
+          </label>
         </>
       ) : (
         <>
