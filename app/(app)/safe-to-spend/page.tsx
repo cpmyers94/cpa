@@ -79,7 +79,12 @@ export default function SafeToSpendPage() {
 
   const savings = goals
     .filter((g) => (g.per_paycheck_contribution ?? 0) > 0)
-    .map((g) => ({ name: g.name, amount: g.per_paycheck_contribution as number }));
+    .map((g) => ({
+      name: g.name,
+      perPaycheck: g.per_paycheck_contribution as number,
+      currentAmount: g.current_amount,
+      targetAmount: g.target_amount,
+    }));
 
   // The household's payoff plan, resolved to a per-paycheck assignment: the
   // monthly snowball split across paychecks and simulated forward, so each
@@ -194,7 +199,14 @@ export default function SafeToSpendPage() {
                     <div key={`s${i}`} className="flex items-center justify-between text-neutral-600 dark:text-neutral-400">
                       <span className="flex items-center gap-2">
                         <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                        {s.name} <span className="text-neutral-400">(savings)</span>
+                        {s.name}{" "}
+                        {s.completesGoal ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            fully funded 🎉
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400">(savings)</span>
+                        )}
                       </span>
                       <span>−{formatCurrency(s.amount)}</span>
                     </div>

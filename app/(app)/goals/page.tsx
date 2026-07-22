@@ -103,6 +103,7 @@ export default function GoalsPage() {
           const target = goal.target_amount ?? 0;
           const progress = target > 0 ? Math.min(goal.current_amount / target, 1) : 0;
           const remaining = Math.max(target - goal.current_amount, 0);
+          const funded = !isPool && target > 0 && goal.current_amount >= target - 0.005;
           const months = monthsUntil(goal.target_date);
           const neededPerMonth = !isPool && months && months > 0 ? remaining / months : null;
 
@@ -111,6 +112,11 @@ export default function GoalsPage() {
               <div className="flex items-start justify-between">
                 <h3 className="font-semibold">
                   {goal.name}
+                  {funded && (
+                    <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                      Fully funded 🎉
+                    </span>
+                  )}
                   {isShared && (
                     <span className="ml-2 text-xs font-normal text-neutral-400">
                       {nameFor(goal.user_id)}
@@ -158,11 +164,20 @@ export default function GoalsPage() {
                     <div className="h-full bg-emerald-500" style={{ width: `${progress * 100}%` }} />
                   </div>
                   <p className="mt-2 text-xs text-neutral-500">
-                    {goal.target_date &&
-                      `Target: ${formatDate(goal.target_date)}`}
-                    {neededPerMonth !== null && ` · needs ~${formatCurrency(neededPerMonth)}/mo`}
-                    {goal.per_paycheck_contribution &&
-                      ` · ${formatCurrency(goal.per_paycheck_contribution)}/paycheck`}
+                    {funded ? (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        Done — {goal.per_paycheck_contribution
+                          ? `${formatCurrency(goal.per_paycheck_contribution)}/paycheck freed back to spending`
+                          : "no more contributions needed"}
+                      </span>
+                    ) : (
+                      <>
+                        {goal.target_date && `Target: ${formatDate(goal.target_date)}`}
+                        {neededPerMonth !== null && ` · needs ~${formatCurrency(neededPerMonth)}/mo`}
+                        {goal.per_paycheck_contribution &&
+                          ` · ${formatCurrency(goal.per_paycheck_contribution)}/paycheck`}
+                      </>
+                    )}
                   </p>
                 </>
               )}

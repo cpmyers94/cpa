@@ -87,7 +87,12 @@ export default function DashboardPage() {
   const monthlyBudget = monthlyBudgetExpenses(expenses);
   const savings = goals
     .filter((g) => (g.per_paycheck_contribution ?? 0) > 0)
-    .map((g) => ({ name: g.name, amount: g.per_paycheck_contribution as number }));
+    .map((g) => ({
+      name: g.name,
+      perPaycheck: g.per_paycheck_contribution as number,
+      currentAmount: g.current_amount,
+      targetAmount: g.target_amount,
+    }));
   const strategy = settings?.strategy ?? "snowball";
   const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, []);
   const monthlySnowball = settings?.extra_override ?? recommendSnowball(evaluation).recommended;

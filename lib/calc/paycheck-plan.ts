@@ -16,9 +16,17 @@ export interface AssignedObligation {
   type: ObligationType;
 }
 
+export interface SavingsGoalInput {
+  name: string;
+  perPaycheck: number; // planned per-paycheck contribution
+  currentAmount: number; // saved so far
+  targetAmount: number | null; // null = general pool, contributes indefinitely
+}
+
 export interface SavingsLine {
   name: string;
-  amount: number; // per-paycheck contribution to this bucket/goal
+  amount: number; // this paycheck's contribution to the bucket/goal
+  completesGoal: boolean; // this contribution reaches the target (last one)
 }
 
 export interface SnowballTargetInput {
@@ -77,9 +85,9 @@ function allocationRef(a: ObligationAllocation): { type: ObligationType; id: str
  *
  * `monthlyBudget` = undated everyday expense budget only. Dated obligations
  * (bills, debt payments, subscriptions) flow through `obligations`/`allocations`,
- * and savings set-asides come in via `savings` — each a per-paycheck amount
- * taken from every paycheck and shown as its own line — so nothing is
- * double-counted.
+ * and savings set-asides come in via `savings` — simulated forward so each goal
+ * fills to its target and then stops, freeing its contribution back into
+ * free-to-spend — so nothing is double-counted.
  *
  * The snowball is resolved by a chronological mini-simulation: balances tick
  * down paycheck by paycheck, each paycheck aims its recommended extra at
@@ -99,7 +107,7 @@ export function buildPaycheckPlan(
   obligations: Obligation[],
   allocations: ObligationAllocation[],
   monthlyBudget: number,
-  savings: SavingsLine[],
+  savings: SavingsGoalInput[],
   rangeStart: Date,
   rangeEnd: Date,
   limit = 6,
@@ -153,14 +161,10 @@ export function buildPaycheckPlan(
       }
 
       const assignedTotal = sum(assigned.map((a) => a.amount));
-      const savingsLines = savings.filter((s) => s.amount > 0);
-      const savingsTotal = sum(savingsLines.map((s) => s.amount));
       const budgetReserve =
         monthlyIncome > 0
           ? Math.round(monthlyBudget * (net / monthlyIncome) * 100) / 100
           : 0;
-      const freeBeforeSnowball =
-        Math.round((net - assignedTotal - savingsTotal - budgetReserve) * 100) / 100;
 
       entries.push({
         incomeSourceId: source.id,
@@ -170,18 +174,46 @@ export function buildPaycheckPlan(
         net,
         assigned,
         assignedTotal,
-        savings: savingsLines,
-        savingsTotal,
+        savings: [], // filled by the savings pass
+        savingsTotal: 0,
         budgetReserve,
         snowball: [],
         snowballTotal: 0,
-        freeToSpend: freeBeforeSnowball,
-        freeBeforeSnowball,
+        freeToSpend: 0, // set by the savings pass, then the snowball pass
+        freeBeforeSnowball: 0,
       });
     }
   }
 
   entries.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Savings pass: walk paychecks in order, contributing to each goal until it
+  // reaches its target, then stopping — so a funded goal frees its per-paycheck
+  // contribution straight back into free-to-spend. Pools (no target) keep
+  // contributing. The last contribution is trimmed to land exactly on target.
+  const pots = savings
+    .filter((s) => s.perPaycheck > 0)
+    .map((s) => ({
+      name: s.name,
+      perPaycheck: s.perPaycheck,
+      left: s.targetAmount == null ? Infinity : Math.max(s.targetAmount - s.currentAmount, 0),
+    }));
+  for (const entry of entries) {
+    const lines: SavingsLine[] = [];
+    for (const pot of pots) {
+      if (pot.left <= 0.005) continue;
+      const amount = Math.round(Math.min(pot.perPaycheck, pot.left) * 100) / 100;
+      if (amount <= 0) continue;
+      if (pot.left !== Infinity) pot.left = Math.round((pot.left - amount) * 100) / 100;
+      lines.push({ name: pot.name, amount, completesGoal: pot.left <= 0.005 });
+    }
+    entry.savings = lines;
+    entry.savingsTotal = Math.round(sum(lines.map((l) => l.amount)) * 100) / 100;
+    entry.freeBeforeSnowball =
+      Math.round((entry.net - entry.assignedTotal - entry.savingsTotal - entry.budgetReserve) * 100) /
+      100;
+    entry.freeToSpend = entry.freeBeforeSnowball;
+  }
 
   // Pass 2: walk paychecks in order, spending each one's recommended extra on
   // the current target debt and rolling any leftover onto the next.
