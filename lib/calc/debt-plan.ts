@@ -102,9 +102,14 @@ function bnplPaymentsPerMonth(debt: Debt): number {
   }
 }
 
-/** Sum of a BNPL plan's remaining scheduled installments (the "ride it out" total). */
+/**
+ * A BNPL plan's remaining scheduled total (the "ride it out" cost). This is the
+ * stored balance, which can be the real lender figure — often less than
+ * installment × payments because the final payment is a small stub, not a full
+ * installment (e.g. 10 × $17.58 + $2.80 = $178.60, not 11 × $17.58).
+ */
 export function bnplScheduledTotal(debt: Debt): number {
-  return (debt.payments_remaining ?? 0) * (debt.installment_amount ?? 0);
+  return debt.balance;
 }
 
 /**
@@ -352,12 +357,14 @@ export function simulatePayoff(
       .filter((d) => d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
       .map((d) => {
         const ppm = bnplPaymentsPerMonth(d);
-        const monthlyCash = ppm * (d.installment_amount ?? 0);
-        // Balance is the early-payoff (settlement); installments pay it down at
-        // the amortized rate so it still clears over the scheduled months, while
-        // the snowball can settle the whole thing early for the payoff figure.
-        const payoff = debtPayoff(d);
         const monthsLeft = Math.max((d.payments_remaining ?? 0) / ppm, 1);
+        // Balance the snowball must clear = the early-payoff (settlement).
+        // Monthly cash rides the real scheduled total across the remaining
+        // months (so a stub final payment doesn't inflate the cost); each
+        // installment pays down the payoff at the amortized rate, and the gap
+        // between cash and principal is the interest you skip by settling early.
+        const payoff = debtPayoff(d);
+        const monthlyCash = bnplScheduledTotal(d) / monthsLeft;
         return {
           id: d.id,
           name: d.name,

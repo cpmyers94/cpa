@@ -119,6 +119,18 @@ export function DebtForm({
               className={inputClass}
             />
           </label>
+          <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+            Remaining balance (optional)
+            <input
+              name="scheduled_balance"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="if final payment differs"
+              defaultValue={editing?.balance ?? undefined}
+              className={inputClass}
+            />
+          </label>
         </>
       ) : (
         <>

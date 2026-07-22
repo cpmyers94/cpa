@@ -14,10 +14,16 @@ function debtPayload(formData: FormData) {
     const settlement = formData.get("settlement_amount")
       ? Number(formData.get("settlement_amount"))
       : null;
+    // Use the real remaining balance when given (the final payment is often a
+    // small stub, so installment × payments overstates it); otherwise assume
+    // uniform installments.
+    const scheduledBalance = formData.get("scheduled_balance")
+      ? Number(formData.get("scheduled_balance"))
+      : Math.round(installment * remaining * 100) / 100;
     return {
       name: String(formData.get("name")),
       type,
-      balance: Math.round(installment * remaining * 100) / 100,
+      balance: scheduledBalance,
       interest_rate: 0,
       minimum_payment: 0,
       due_day: null,
