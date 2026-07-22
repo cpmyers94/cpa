@@ -71,8 +71,9 @@ export default function SafeToSpendPage() {
   const { sources, deductions, bills, debts, expenses, goals, allocations, settings } = data;
 
   const today = new Date();
-  // Wide window so allocated obligation occurrences can be looked up by date.
-  const obligations = getObligations(bills, debts, expenses, addDays(today, -7), addDays(today, 120));
+  // Wide window so allocated obligation occurrences can be looked up by date —
+  // reaches back far enough to cover the current pay period's assignments too.
+  const obligations = getObligations(bills, debts, expenses, addDays(today, -40), addDays(today, 120));
 
   const monthlyBudget = monthlyBudgetExpenses(expenses);
 
@@ -103,7 +104,8 @@ export default function SafeToSpendPage() {
     today,
     addDays(today, 60),
     6,
-    snowball
+    snowball,
+    true // include the current pay period, not just upcoming ones
   );
 
   // Monthly money already headed to debt (minimums + BNPL). Extra surplus isn't
@@ -140,16 +142,25 @@ export default function SafeToSpendPage() {
             {plan.map((entry) => (
               <div
                 key={`${entry.incomeSourceId}-${entry.date}`}
-                className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800"
+                className={`rounded-lg border p-4 ${
+                  entry.isCurrent
+                    ? "border-neutral-900 ring-1 ring-neutral-900 dark:border-white dark:ring-white"
+                    : "border-neutral-200 dark:border-neutral-800"
+                }`}
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-sm font-semibold">
+                    <p className="flex items-center gap-2 text-sm font-semibold">
                       {formatDate(entry.date, {
                         weekday: "short",
                         month: "short",
                         day: "numeric",
                       })}
+                      {entry.isCurrent && (
+                        <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-medium text-white dark:bg-white dark:text-neutral-900">
+                          Current paycheck
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-neutral-500">
                       {entry.incomeSourceName} · {formatCurrency(entry.net)} take-home

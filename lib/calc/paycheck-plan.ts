@@ -1,3 +1,4 @@
+import { addDays } from "date-fns";
 import { getPaycheckOccurrences } from "./schedule";
 import { monthlyNetIncome } from "./debt-plan";
 import { sum } from "./money";
@@ -41,6 +42,7 @@ export interface PaycheckPlanEntry {
   incomeSourceId: string;
   incomeSourceName: string;
   date: string; // yyyy-mm-dd payday
+  isCurrent: boolean; // the pay period you're in right now (payday on or before today)
   net: number;
   assigned: AssignedObligation[];
   assignedTotal: number;
@@ -84,6 +86,12 @@ function allocationRef(a: ObligationAllocation): { type: ObligationType; id: str
  * whatever debt is the current target on that date, and when a payment
  * finishes a debt the leftover rolls onto the next target — so later paychecks
  * correctly point at the next debt instead of one that's already gone.
+ *
+ * All date filtering compares calendar-day strings (never instants), so a
+ * payday that lands *today* is never dropped for being "earlier than now."
+ * With `includeCurrent`, each source's most recent payday on or before today is
+ * kept and flagged `isCurrent` — the pay period you're actually living in —
+ * instead of jumping straight to the next one.
  */
 export function buildPaycheckPlan(
   sources: IncomeSource[],
@@ -95,10 +103,24 @@ export function buildPaycheckPlan(
   rangeStart: Date,
   rangeEnd: Date,
   limit = 6,
-  snowball: SnowballPlanInput | null = null
+  snowball: SnowballPlanInput | null = null,
+  includeCurrent = false
 ): PaycheckPlanEntry[] {
   const monthlyIncome = monthlyNetIncome(sources, deductions);
   const obByKey = new Map(obligations.map((o) => [obKey(o.type, o.id, o.date), o]));
+
+  // Today as a calendar-day string in the viewer's own timezone, so "is this
+  // payday today or later?" is a clean string comparison with no UTC drift.
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate()
+  ).padStart(2, "0")}`;
+  // Look back far enough to catch the current pay period's payday (a monthly
+  // schedule can be ~31 days back); precise filtering happens per source below.
+  // Even without includeCurrent, look back a couple days so a payday that lands
+  // *today* — stored at UTC midnight, which is "before now" — isn't dropped by
+  // the occurrence generator's instant comparison before we can keep it.
+  const genStart = addDays(rangeStart, includeCurrent ? -35 : -2);
 
   // Pass 1: build every entry with its free-to-spend before the snowball.
   const entries: (PaycheckPlanEntry & { freeBeforeSnowball: number })[] = [];
@@ -108,8 +130,18 @@ export function buildPaycheckPlan(
     );
     const net = source.gross_amount - deductionTotal;
 
-    for (const date of getPaycheckOccurrences(source, rangeStart, rangeEnd)) {
-      const iso = date.toISOString().slice(0, 10);
+    const isos = getPaycheckOccurrences(source, genStart, rangeEnd)
+      .map((d) => d.toISOString().slice(0, 10))
+      .sort();
+    // The current period's payday: the latest one on or before today. Keep it
+    // and everything after; drop older paydays. Without includeCurrent, keep
+    // only today and future.
+    const pastOrToday = isos.filter((iso) => iso <= todayIso);
+    const currentIso =
+      includeCurrent && pastOrToday.length > 0 ? pastOrToday[pastOrToday.length - 1] : todayIso;
+
+    for (const iso of isos) {
+      if (iso < currentIso) continue;
 
       const assigned: AssignedObligation[] = [];
       for (const a of allocations) {
@@ -134,6 +166,7 @@ export function buildPaycheckPlan(
         incomeSourceId: source.id,
         incomeSourceName: source.name,
         date: iso,
+        isCurrent: includeCurrent && iso === currentIso && currentIso <= todayIso,
         net,
         assigned,
         assignedTotal,
