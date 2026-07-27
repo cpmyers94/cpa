@@ -1,55 +1,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, addMonths } from "date-fns";
+import { buildDebtPayload } from "@/lib/debts/payload";
 import type { Debt, DebtType, InstallmentFrequency } from "@/lib/supabase/types";
 
-/** Builds the debt column values from a form, shared by add + update. */
+const num = (v: FormDataEntryValue | null) => (v ? Number(v) : null);
+
+/** Maps the form into the shared payload builder used by every debt writer. */
 function debtPayload(formData: FormData) {
-  const type = String(formData.get("type")) as DebtType;
-
-  if (type === "bnpl") {
-    // BNPL: fixed installments, interest baked in. Balance is derived from the
-    // installment amount and how many payments remain.
-    const installment = Number(formData.get("installment_amount"));
-    const remaining = Number(formData.get("payments_remaining"));
-    const settlement = formData.get("settlement_amount")
-      ? Number(formData.get("settlement_amount"))
-      : null;
-    // Use the real remaining balance when given (the final payment is often a
-    // small stub, so installment × payments overstates it); otherwise assume
-    // uniform installments.
-    const scheduledBalance = formData.get("scheduled_balance")
-      ? Number(formData.get("scheduled_balance"))
-      : Math.round(installment * remaining * 100) / 100;
-    return {
-      name: String(formData.get("name")),
-      type,
-      balance: scheduledBalance,
-      interest_rate: 0,
-      minimum_payment: 0,
-      due_day: null,
-      installment_amount: installment,
-      payments_remaining: remaining,
-      installment_frequency: String(
-        formData.get("installment_frequency")
-      ) as InstallmentFrequency,
-      next_payment_date: String(formData.get("next_payment_date")) || null,
-      settlement_amount: settlement,
-    };
-  }
-
-  return {
+  return buildDebtPayload({
     name: String(formData.get("name")),
-    type,
-    balance: Number(formData.get("balance")),
-    interest_rate: Number(formData.get("interest_rate") || 0),
-    minimum_payment: Number(formData.get("minimum_payment") || 0),
-    due_day: formData.get("due_day") ? Number(formData.get("due_day")) : null,
-    installment_amount: null,
-    payments_remaining: null,
-    installment_frequency: null,
-    next_payment_date: null,
-    settlement_amount: null,
-  };
+    type: String(formData.get("type")) as DebtType,
+    balance: num(formData.get("balance")),
+    interest_rate: num(formData.get("interest_rate")),
+    minimum_payment: num(formData.get("minimum_payment")),
+    due_day: num(formData.get("due_day")),
+    installment_amount: num(formData.get("installment_amount")),
+    payments_remaining: num(formData.get("payments_remaining")),
+    installment_frequency: (String(formData.get("installment_frequency")) ||
+      null) as InstallmentFrequency | null,
+    next_payment_date: String(formData.get("next_payment_date")) || null,
+    settlement_amount: num(formData.get("settlement_amount")),
+    scheduled_balance: num(formData.get("scheduled_balance")),
+  });
 }
 
 export async function addDebt(
