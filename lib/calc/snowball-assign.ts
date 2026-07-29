@@ -45,6 +45,42 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const monthKey = (iso: string) => iso.slice(0, 7);
 
 /**
+ * The date each debt stops costing anything, given the extra payments assigned
+ * to it. Paying a debt off has to actually end it: otherwise the plan promises
+ * "this clears it" and then keeps charging the installment on later paychecks,
+ * understating what's free and hiding the whole reward for paying it off.
+ *
+ * Only a payment that covers the full payoff clears a debt — a partial one
+ * lowers the balance but the schedule carries on. Returns debt id → the payday
+ * it's cleared on; obligations after that date should be dropped.
+ */
+export function clearedDatesFromAssignments(
+  debts: { id: string; payoff: number }[],
+  assigned: { debtId: string; amount: number; paycheckDate: string }[]
+): Map<string, string> {
+  const cleared = new Map<string, string>();
+  const byDebt = new Map<string, { amount: number; paycheckDate: string }[]>();
+  for (const a of assigned) {
+    byDebt.set(a.debtId, [...(byDebt.get(a.debtId) ?? []), a]);
+  }
+
+  for (const debt of debts) {
+    const payments = (byDebt.get(debt.id) ?? []).sort((a, b) =>
+      a.paycheckDate.localeCompare(b.paycheckDate)
+    );
+    let paid = 0;
+    for (const p of payments) {
+      paid = round2(paid + p.amount);
+      if (paid >= debt.payoff - 0.005) {
+        cleared.set(debt.id, p.paycheckDate);
+        break;
+      }
+    }
+  }
+  return cleared;
+}
+
+/**
  * Recommends one snowball payment per calendar month, on the paycheck best able
  * to absorb it.
  *

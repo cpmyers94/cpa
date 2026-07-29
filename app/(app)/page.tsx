@@ -10,6 +10,7 @@ import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import { debtPayoff } from "@/lib/calc/debt-plan";
 import { buildPaycheckPlan, type AssignedSnowballPayment } from "@/lib/calc/paycheck-plan";
+import { clearedDatesFromAssignments } from "@/lib/calc/snowball-assign";
 import type {
   Bill,
   Debt,
@@ -96,13 +97,27 @@ export default function DashboardPage() {
     targetName: debts.find((d) => d.id === p.debt_id)?.name.trim() ?? "debt",
     amount: p.amount,
   }));
+  // Debts an assigned payment pays off stop generating obligations afterwards.
+  const cleared = clearedDatesFromAssignments(
+    debts.map((d) => ({ id: d.id, payoff: debtPayoff(d) })),
+    payments.map((p) => ({
+      debtId: p.debt_id,
+      amount: p.amount,
+      paycheckDate: p.paycheck_date,
+    }))
+  );
+  const notCleared = (ob: { type: ObligationType; id: string; date: string }) => {
+    if (ob.type !== "debt") return true;
+    const clearedOn = cleared.get(ob.id);
+    return !clearedOn || ob.date <= clearedOn;
+  };
   const planObligations = getObligations(
     bills,
     debts,
     expenses,
     addDays(today, -7),
     addDays(today, WINDOW_DAYS + 30)
-  );
+  ).filter(notCleared);
   const upcomingPaychecks = buildPaycheckPlan(
     sources,
     deductions,
@@ -116,7 +131,9 @@ export default function DashboardPage() {
     assignedSnowball
   );
 
-  const upcomingObligations = getObligations(bills, debts, expenses, today, rangeEnd);
+  const upcomingObligations = getObligations(bills, debts, expenses, today, rangeEnd).filter(
+    notCleared
+  );
 
   const totalIncoming = sum(upcomingPaychecks.map((p) => p.net));
   const totalOutgoing = sum(upcomingObligations.map((o) => o.amount));

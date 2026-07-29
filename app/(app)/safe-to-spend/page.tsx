@@ -9,13 +9,17 @@ import { Card, ghostButtonClass } from "@/components/card";
 import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import {
+  debtPayoff,
   evaluate,
   monthlyBnplObligation,
   orderedSnowballTargets,
   recommendSnowball,
 } from "@/lib/calc/debt-plan";
 import { buildPaycheckPlan, type AssignedSnowballPayment } from "@/lib/calc/paycheck-plan";
-import { suggestSnowballPayments } from "@/lib/calc/snowball-assign";
+import {
+  clearedDatesFromAssignments,
+  suggestSnowballPayments,
+} from "@/lib/calc/snowball-assign";
 import type {
   Bill,
   Debt,
@@ -88,7 +92,29 @@ export default function SafeToSpendPage() {
   const today = new Date();
   // Wide window so allocated obligation occurrences can be looked up by date —
   // reaches back far enough to cover the current pay period's assignments too.
-  const obligations = getObligations(bills, debts, expenses, addDays(today, -40), addDays(today, 120));
+  const allObligations = getObligations(
+    bills,
+    debts,
+    expenses,
+    addDays(today, -40),
+    addDays(today, 120)
+  );
+
+  // A debt an assigned payment pays off stops costing anything after that
+  // payday — drop its later installments so the payoff actually shows up.
+  const cleared = clearedDatesFromAssignments(
+    debts.map((d) => ({ id: d.id, payoff: debtPayoff(d) })),
+    payments.map((p) => ({
+      debtId: p.debt_id,
+      amount: p.amount,
+      paycheckDate: p.paycheck_date,
+    }))
+  );
+  const obligations = allObligations.filter((ob) => {
+    if (ob.type !== "debt") return true;
+    const clearedOn = cleared.get(ob.id);
+    return !clearedOn || ob.date <= clearedOn;
+  });
 
   const monthlyBudget = monthlyBudgetExpenses(expenses);
 
