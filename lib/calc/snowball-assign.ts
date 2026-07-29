@@ -58,14 +58,27 @@ export function suggestSnowballPayments(
   targets: SnowballTarget[],
   monthlyTarget: number,
   cushion = 100,
-  maxSuggestions = 3
+  maxSuggestions = 3,
+  /** Don't suggest before this calendar day. Defaults to today. */
+  notBefore?: string
 ): SnowballSuggestion[] {
   if (monthlyTarget <= 0 || targets.length === 0) return [];
 
+  // A paycheck already in hand is largely spent — suggesting an extra payment
+  // out of it is advice about the past. Only look at today's and later paydays.
+  // Already-assigned payments still show; this only gates new suggestions.
+  const now = new Date();
+  const floorDate =
+    notBefore ??
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+      now.getDate()
+    ).padStart(2, "0")}`;
   // Remaining payoff per debt, drawn down as suggestions consume it.
   const remaining = targets.map((t) => ({ ...t }));
   let targetIndex = 0;
 
+  // Group every paycheck by month — a payment already assigned to a past
+  // paycheck still spends that month's budget — but only offer future ones.
   const byMonth = new Map<string, PaycheckPlanEntry[]>();
   for (const entry of entries) {
     const key = monthKey(entry.date);
@@ -83,9 +96,9 @@ export function suggestSnowballPayments(
     const budget = round2(monthlyTarget - committed);
     if (budget <= 0) continue;
 
-    // Only paychecks with real slack, and never one already carrying a payment.
+    // Real slack, not already carrying a payment, and not already received.
     const candidates = monthEntries.filter(
-      (e) => e.snowballTotal === 0 && e.freeToSpend > cushion
+      (e) => e.snowballTotal === 0 && e.freeToSpend > cushion && e.date >= floorDate
     );
     if (candidates.length === 0) continue;
 
@@ -109,7 +122,8 @@ export function suggestSnowballPayments(
     const paysOff = amount >= target.balance - 0.005;
     target.balance = round2(target.balance - amount);
 
-    const others = monthEntries.filter((e) => e.date !== best.date);
+    // Only cite upcoming paychecks as the alternatives — a past one isn't a choice.
+    const others = monthEntries.filter((e) => e.date !== best.date && e.date >= floorDate);
     const reason =
       others.length === 0
         ? "Only paycheck this month."
