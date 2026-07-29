@@ -106,6 +106,8 @@ export interface Debt extends Owned {
   type: DebtType;
   balance: number;
   interest_rate: number;
+  /** True when the user set the APR themselves — never overwrite a manual rate. */
+  apr_manual: boolean;
   minimum_payment: number;
   due_day: number | null;
   // BNPL-only fields: fixed installments on a fixed schedule.

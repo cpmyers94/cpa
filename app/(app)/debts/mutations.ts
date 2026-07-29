@@ -12,6 +12,9 @@ function debtPayload(formData: FormData) {
     type: String(formData.get("type")) as DebtType,
     balance: num(formData.get("balance")),
     interest_rate: num(formData.get("interest_rate")),
+    // An APR typed into the form is the user's own — it outranks any derived
+    // rate from then on. Clearing the field hands it back to derivation.
+    apr_manual: Boolean(formData.get("interest_rate")),
     minimum_payment: num(formData.get("minimum_payment")),
     due_day: num(formData.get("due_day")),
     installment_amount: num(formData.get("installment_amount")),

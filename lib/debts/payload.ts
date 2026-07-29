@@ -11,6 +11,11 @@ export interface DebtInput {
   // Revolving (credit card, loan, …)
   balance?: number | null;
   interest_rate?: number | null;
+  /**
+   * True when this APR came from the user rather than being derived. A manual
+   * rate is authoritative and must survive any later derivation or backfill.
+   */
+  apr_manual?: boolean;
   minimum_payment?: number | null;
   due_day?: number | null;
   // BNPL
@@ -33,6 +38,7 @@ export interface DebtColumns {
   type: DebtType;
   balance: number;
   interest_rate: number;
+  apr_manual: boolean;
   minimum_payment: number;
   due_day: number | null;
   installment_amount: number | null;
@@ -61,6 +67,7 @@ export function buildDebtPayload(input: DebtInput): DebtColumns {
       // BNPL plans are installment loans and carry a real APR — often higher
       // than a credit card's. 0 means "rate unknown", not "interest free".
       interest_rate: Number(input.interest_rate ?? 0),
+      apr_manual: input.apr_manual ?? false,
       minimum_payment: 0,
       due_day: null,
       installment_amount: installment,
@@ -78,6 +85,8 @@ export function buildDebtPayload(input: DebtInput): DebtColumns {
     type: input.type,
     balance: Number(input.balance ?? 0),
     interest_rate: Number(input.interest_rate ?? 0),
+    // A rate on a card or loan is always the user's own figure.
+    apr_manual: input.apr_manual ?? true,
     minimum_payment: Number(input.minimum_payment ?? 0),
     due_day: input.due_day == null ? null : Number(input.due_day),
     installment_amount: null,

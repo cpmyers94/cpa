@@ -85,6 +85,8 @@ export function describeDebt(debt: Debt): Record<string, unknown> {
       installment_frequency: debt.installment_frequency,
       next_payment_date: debt.next_payment_date,
       monthly_obligation: bnplMonthlyObligation(debt),
+      interest_rate_apr: debt.interest_rate,
+      apr_source: debt.apr_manual ? "user" : "derived",
       settlement_amount_known: debt.settlement_amount != null,
     };
   }
@@ -96,6 +98,7 @@ export function describeDebt(debt: Debt): Record<string, unknown> {
     payoff_today: payoff,
     balance: debt.balance,
     interest_rate_apr: debt.interest_rate,
+    apr_source: debt.apr_manual ? "user" : "derived",
     minimum_payment: debt.minimum_payment,
     due_day: debt.due_day,
   };
@@ -143,6 +146,7 @@ function debtToInput(debt: Debt): DebtInput {
     type: debt.type,
     balance: debt.balance,
     interest_rate: debt.interest_rate,
+    apr_manual: debt.apr_manual,
     minimum_payment: debt.minimum_payment,
     due_day: debt.due_day,
     installment_amount: debt.installment_amount,
@@ -164,7 +168,11 @@ const debtFields = {
   name: { type: "string", description: "Debt name, e.g. 'Bike shop'." },
   type: { type: "string", enum: DEBT_TYPES, description: "Kind of debt." },
   balance: { type: "number", description: "Current balance (non-BNPL)." },
-  interest_rate: { type: "number", description: "APR percent, e.g. 27.5 (non-BNPL)." },
+  interest_rate: {
+    type: "number",
+    description:
+      "APR percent, e.g. 27.5. BNPL plans have a real APR too (often 25-35%) — setting it marks the rate as user-owned so it won't be overwritten by a derived one.",
+  },
   minimum_payment: { type: "number", description: "Monthly minimum (non-BNPL)." },
   due_day: { type: "integer", description: "Day of month the payment is due, 1-31." },
   installment_amount: { type: "number", description: "BNPL: amount per installment." },
@@ -351,6 +359,7 @@ async function addDebt(ctx: DebtToolContext, args: Args) {
     type,
     balance: numOf(args, "balance"),
     interest_rate: numOf(args, "interest_rate"),
+    apr_manual: args.interest_rate != null,
     minimum_payment: numOf(args, "minimum_payment"),
     due_day: numOf(args, "due_day"),
     installment_amount: numOf(args, "installment_amount"),
@@ -387,6 +396,7 @@ async function updateDebt(ctx: DebtToolContext, args: Args) {
     type: (str(args, "type") as DebtType) ?? base.type,
     balance: numOf(args, "balance") ?? base.balance,
     interest_rate: numOf(args, "interest_rate") ?? base.interest_rate,
+    apr_manual: args.interest_rate != null ? true : base.apr_manual,
     minimum_payment: numOf(args, "minimum_payment") ?? base.minimum_payment,
     due_day: numOf(args, "due_day") ?? base.due_day,
     installment_amount: numOf(args, "installment_amount") ?? base.installment_amount,

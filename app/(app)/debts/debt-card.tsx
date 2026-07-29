@@ -214,12 +214,22 @@ export function DebtCard({
           <p className="text-xs text-neutral-500">
             {TYPE_LABEL[debt.type]}
             {!isBnpl && ` · ${debt.interest_rate}% APR`}
-            {isBnpl && debt.interest_rate > 0 && ` · ${debt.interest_rate}% APR`}
-            {isBnpl && debt.interest_rate <= 0 && impliedApr != null && impliedApr > 0 && (
-              <> · ~{impliedApr}% APR implied</>
+            {isBnpl && debt.interest_rate > 0 && (
+              <>
+                {" · "}
+                {debt.interest_rate}% APR
+                {!debt.apr_manual && (
+                  <span className="text-neutral-400"> (derived — edit to set your own)</span>
+                )}
+              </>
             )}
-            {isBnpl && debt.interest_rate <= 0 && (impliedApr == null || impliedApr === 0) &&
-              " · interest built into payments"}
+            {isBnpl && debt.interest_rate <= 0 && impliedApr != null && impliedApr > 0 && (
+              <> · ~{impliedApr}% APR implied by the payoff</>
+            )}
+            {isBnpl &&
+              debt.interest_rate <= 0 &&
+              (impliedApr == null || impliedApr === 0) &&
+              " · APR not set"}
           </p>
         </div>
         <div className="text-right">
