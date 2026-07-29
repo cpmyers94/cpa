@@ -13,6 +13,7 @@ import {
   paychecksPerMonth,
   recommendSnowball,
   simulatePayoff,
+  type ScheduledExtra,
   type Strategy,
 } from "@/lib/calc/debt-plan";
 import type {
@@ -24,6 +25,7 @@ import type {
   PaycheckDeduction,
   PlanSettings,
   SavingsGoal,
+  SnowballPayment,
 } from "@/lib/supabase/types";
 
 export default function PlanPage() {
@@ -33,7 +35,7 @@ export default function PlanPage() {
   const [extraTouched, setExtraTouched] = useState(false);
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, expenses, goals, debts, payments, settings] =
+    const [sources, deductions, bills, expenses, goals, debts, payments, settings, extras] =
       await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
@@ -43,6 +45,7 @@ export default function PlanPage() {
         supabase.from("debts").select("*"),
         supabase.from("debt_payments").select("*"),
         supabase.from("plan_settings").select("*").limit(1),
+        supabase.from("snowball_payments").select("*"),
       ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
@@ -53,6 +56,7 @@ export default function PlanPage() {
       debts: (debts.data ?? []) as Debt[],
       payments: (payments.data ?? []) as DebtPayment[],
       settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
+      extras: (extras.data ?? []) as SnowballPayment[],
     };
   }, [supabase]);
 
@@ -77,7 +81,7 @@ export default function PlanPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, expenses, goals, debts, payments } = data;
+  const { sources, deductions, bills, expenses, goals, debts, payments, extras } = data;
   const activeDebts = debts.filter(
     (d) => d.balance > 0 || (d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
   );
@@ -105,12 +109,26 @@ export default function PlanPage() {
   const perPaycheckDivisor = paychecksPerMonth(sources);
   const extraPerPaycheck = perPaycheckDivisor > 0 ? extra / perPaycheckDivisor : null;
 
-  const plan = simulatePayoff(activeDebts, extra, strategy);
+  const today = new Date();
+
+  // Extra payments already assigned to a paycheck are honoured on the month
+  // they land in, so this projection agrees with Safe to Spend instead of
+  // assuming the budget flows wherever the strategy would have sent it.
+  const monthsAway = (iso: string) => {
+    const [y, m] = iso.split("-").map(Number);
+    return Math.max((y - today.getFullYear()) * 12 + (m - 1 - today.getMonth()), 1);
+  };
+  const scheduled: ScheduledExtra[] = extras.map((e) => ({
+    debtId: e.debt_id,
+    amount: e.amount,
+    month: monthsAway(e.paycheck_date),
+  }));
+
+  const plan = simulatePayoff(activeDebts, extra, strategy, true, scheduled);
   const minimumsOnly = simulatePayoff(activeDebts, 0, "avalanche", false);
   const otherStrategy: Strategy = strategy === "avalanche" ? "snowball" : "avalanche";
-  const alternative = simulatePayoff(activeDebts, extra, otherStrategy);
+  const alternative = simulatePayoff(activeDebts, extra, otherStrategy, true, scheduled);
 
-  const today = new Date();
   const debtFreeDate = plan.capped ? null : addMonths(today, plan.months);
   const interestSaved = minimumsOnly.capped
     ? null

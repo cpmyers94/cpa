@@ -345,11 +345,25 @@ export interface PlanResult {
   capped: boolean;
 }
 
+/**
+ * An extra payment already assigned to a specific paycheck, expressed as the
+ * simulation month it lands in. Without these the projection assumes the
+ * monthly budget flows to whatever the strategy would pick, which contradicts
+ * the payments the user actually committed to on Safe to Spend.
+ */
+export interface ScheduledExtra {
+  debtId: string;
+  amount: number;
+  /** 1-based month of the simulation. */
+  month: number;
+}
+
 export function simulatePayoff(
   debts: Debt[],
   extraPerMonth: number,
   strategy: Strategy,
-  rollover = true
+  rollover = true,
+  scheduled: ScheduledExtra[] = []
 ): PlanResult {
   const items = [
     ...debts
@@ -381,7 +395,8 @@ export function simulatePayoff(
       })),
   ];
 
-  const budget = sum(items.map((d) => Math.min(d.min, d.balance))) + extraPerMonth;
+  const startMinimums = sum(items.map((d) => Math.min(d.min, d.balance)));
+  const budget = startMinimums + extraPerMonth;
 
   let month = 0;
   let totalInterest = 0;
@@ -419,12 +434,34 @@ export function simulatePayoff(
       }
     }
 
-    if (paidThisMonth > budget + 0.01) feasible = false;
+    // 2. Extra payments already assigned to this month go to the debt they
+    // were assigned to, not to whatever the strategy would have picked. An
+    // assignment is that month's extra rather than an addition to it.
+    const dueNow = scheduled.filter((s) => s.month === month);
+    let extraThisMonth = extraPerMonth;
+    if (dueNow.length > 0) {
+      extraThisMonth = sum(dueNow.map((s) => s.amount));
+      for (const s of dueNow) {
+        const target = items.find((d) => d.id === s.debtId);
+        if (!target || target.balance <= 0.005) continue;
+        const payment = Math.min(s.amount, target.balance);
+        target.balance -= payment;
+        paidThisMonth += payment;
+        if (target.balance <= 0.005) {
+          target.balance = 0;
+          target.paidOffMonth = month;
+        }
+      }
+    }
 
-    // 2. Whatever's left of the fixed budget — the snowball — attacks the
-    // target debt(s) chosen by the strategy.
+    // Freed-up minimums still roll forward on top of this month's extra.
+    const monthlyBudget = startMinimums + extraThisMonth;
+    if (paidThisMonth > monthlyBudget + 0.01) feasible = false;
+
+    // 3. Whatever's left of the budget — the snowball — attacks the target
+    // debt(s) chosen by the strategy.
     if (rollover) {
-      let pool = Math.max(budget - paidThisMonth, 0);
+      let pool = Math.max(monthlyBudget - paidThisMonth, 0);
       let target = pickTarget();
       while (target && pool > 0.005) {
         const payment = Math.min(pool, target.balance);

@@ -14,6 +14,7 @@ import {
   paychecksPerMonth,
   recommendSnowball,
   simulatePayoff,
+  type ScheduledExtra,
   type Strategy,
 } from "@/lib/calc/debt-plan";
 import type {
@@ -25,6 +26,7 @@ import type {
   PaycheckDeduction,
   PlanSettings,
   SavingsGoal,
+  SnowballPayment,
 } from "@/lib/supabase/types";
 
 export default function PayoffDetailPage() {
@@ -42,7 +44,7 @@ function PayoffDetail() {
   const extraParam = params.get("extra");
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, expenses, goals, debts, payments, settings] =
+    const [sources, deductions, bills, expenses, goals, debts, payments, settings, extras] =
       await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
@@ -52,6 +54,7 @@ function PayoffDetail() {
         supabase.from("debts").select("*"),
         supabase.from("debt_payments").select("*"),
         supabase.from("plan_settings").select("*").limit(1),
+        supabase.from("snowball_payments").select("*"),
       ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
@@ -62,6 +65,7 @@ function PayoffDetail() {
       debts: (debts.data ?? []) as Debt[],
       payments: (payments.data ?? []) as DebtPayment[],
       settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
+      extras: (extras.data ?? []) as SnowballPayment[],
     };
   }, [supabase]);
 
@@ -71,7 +75,7 @@ function PayoffDetail() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, expenses, goals, debts, payments, settings } = data;
+  const { sources, deductions, bills, expenses, goals, debts, payments, settings, extras } = data;
   const activeDebts = debts.filter(
     (d) => d.balance > 0 || (d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
   );
@@ -100,8 +104,19 @@ function PayoffDetail() {
       ? Math.max(Number(extraParam) || 0, 0)
       : (settings?.extra_override ?? recommendation.recommended);
 
-  const plan = simulatePayoff(activeDebts, extra, strategy);
   const today = new Date();
+  // Honour payments already assigned to a paycheck, so this matches the Plan
+  // page and Safe to Spend rather than re-deciding where the money goes.
+  const monthsAway = (iso: string) => {
+    const [y, m] = iso.split("-").map(Number);
+    return Math.max((y - today.getFullYear()) * 12 + (m - 1 - today.getMonth()), 1);
+  };
+  const scheduled: ScheduledExtra[] = extras.map((e) => ({
+    debtId: e.debt_id,
+    amount: e.amount,
+    month: monthsAway(e.paycheck_date),
+  }));
+  const plan = simulatePayoff(activeDebts, extra, strategy, true, scheduled);
   const ppm = paychecksPerMonth(sources);
   const perPaycheck = (monthly: number) =>
     ppm > 0 ? ` (≈ ${formatCurrency(Math.round(monthly / ppm))}/paycheck)` : "";
