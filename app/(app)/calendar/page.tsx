@@ -16,8 +16,16 @@ import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency } from "@/lib/calc/money";
 import { getPaycheckOccurrences } from "@/lib/calc/schedule";
+import { withoutClearedDebts } from "@/lib/debts/assignments";
 import { getObligations } from "@/lib/calc/obligations";
-import type { Bill, Debt, Expense, IncomeSource, ObligationType } from "@/lib/supabase/types";
+import type {
+  Bill,
+  Debt,
+  Expense,
+  IncomeSource,
+  ObligationType,
+  SnowballPayment,
+} from "@/lib/supabase/types";
 
 type EventKind = "pay" | ObligationType;
 type DayEvent = { label: string; amount: number; kind: EventKind };
@@ -34,17 +42,19 @@ export default function CalendarPage() {
   const [monthStart, setMonthStart] = useState(() => startOfMonth(new Date()));
 
   const load = useCallback(async () => {
-    const [sourcesRes, billsRes, debtsRes, expensesRes] = await Promise.all([
+    const [sourcesRes, billsRes, debtsRes, expensesRes, extrasRes] = await Promise.all([
       supabase.from("income_sources").select("*").eq("active", true),
       supabase.from("bills").select("*").eq("active", true),
       supabase.from("debts").select("*"),
       supabase.from("expenses").select("*").eq("active", true),
+      supabase.from("snowball_payments").select("*"),
     ]);
     return {
       sources: (sourcesRes.data ?? []) as IncomeSource[],
       bills: (billsRes.data ?? []) as Bill[],
       debts: (debtsRes.data ?? []) as Debt[],
       expenses: (expensesRes.data ?? []) as Expense[],
+      extras: (extrasRes.data ?? []) as SnowballPayment[],
     };
   }, [supabase]);
 
@@ -53,7 +63,7 @@ export default function CalendarPage() {
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
-  const { sources, bills, debts, expenses } = data;
+  const { sources, bills, debts, expenses, extras } = data;
 
   const monthEnd = endOfMonth(monthStart);
   const gridStart = startOfWeek(monthStart);
@@ -75,7 +85,12 @@ export default function CalendarPage() {
       });
     }
   }
-  for (const ob of getObligations(bills, debts, expenses, gridStart, gridEnd)) {
+  const obligations = withoutClearedDebts(
+    getObligations(bills, debts, expenses, gridStart, gridEnd),
+    debts,
+    extras
+  );
+  for (const ob of obligations) {
     pushEvent(ob.date, { label: ob.name, amount: ob.amount, kind: ob.type });
   }
 

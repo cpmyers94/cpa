@@ -7,6 +7,7 @@ import { useAsyncData } from "@/components/use-async-data";
 import { Card, ghostButtonClass } from "@/components/card";
 import { formatCurrency, formatDate } from "@/lib/calc/money";
 import { getPaycheckOccurrences } from "@/lib/calc/schedule";
+import { withoutClearedDebts } from "@/lib/debts/assignments";
 import { getObligations, type Obligation } from "@/lib/calc/obligations";
 import { pickPaycheckForDueDate } from "@/lib/calc/allocate";
 import type {
@@ -16,6 +17,7 @@ import type {
   IncomeSource,
   ObligationAllocation,
   ObligationType,
+  SnowballPayment,
 } from "@/lib/supabase/types";
 import { BillForm } from "./bill-form";
 import { allocateObligation, deleteBill } from "./mutations";
@@ -40,12 +42,14 @@ export default function BillsPage() {
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [billsRes, debtsRes, expensesRes, sourcesRes, allocationsRes] = await Promise.all([
+    const [billsRes, debtsRes, expensesRes, sourcesRes, allocationsRes, extrasRes] =
+      await Promise.all([
       supabase.from("bills").select("*").eq("active", true).order("created_at"),
       supabase.from("debts").select("*"),
       supabase.from("expenses").select("*").eq("active", true),
       supabase.from("income_sources").select("*").eq("active", true),
       supabase.from("bill_allocations").select("*"),
+      supabase.from("snowball_payments").select("*"),
     ]);
     return {
       bills: (billsRes.data ?? []) as Bill[],
@@ -53,6 +57,7 @@ export default function BillsPage() {
       expenses: (expensesRes.data ?? []) as Expense[],
       sources: (sourcesRes.data ?? []) as IncomeSource[],
       allocations: (allocationsRes.data ?? []) as ObligationAllocation[],
+      extras: (extrasRes.data ?? []) as SnowballPayment[],
     };
   }, [supabase]);
 
@@ -61,7 +66,7 @@ export default function BillsPage() {
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
-  const { bills, debts, expenses, sources, allocations } = data;
+  const { bills, debts, expenses, sources, allocations, extras } = data;
 
   const today = new Date();
   const rangeEnd = addDays(today, WINDOW_DAYS);
@@ -74,7 +79,12 @@ export default function BillsPage() {
     }))
   );
 
-  const obligations = getObligations(bills, debts, expenses, today, rangeEnd);
+  // A debt an assigned payment pays off shouldn't still be offered for assignment.
+  const obligations = withoutClearedDebts(
+    getObligations(bills, debts, expenses, today, rangeEnd),
+    debts,
+    extras
+  );
 
   const findAllocation = (ob: Obligation) => {
     const column = allocationColumn(ob.type);

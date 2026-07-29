@@ -14,9 +14,9 @@ import {
   paychecksPerMonth,
   recommendSnowball,
   simulatePayoff,
-  type ScheduledExtra,
   type Strategy,
 } from "@/lib/calc/debt-plan";
+import { toScheduledExtras } from "@/lib/debts/assignments";
 import type {
   Bill,
   Debt,
@@ -107,15 +107,7 @@ function PayoffDetail() {
   const today = new Date();
   // Honour payments already assigned to a paycheck, so this matches the Plan
   // page and Safe to Spend rather than re-deciding where the money goes.
-  const monthsAway = (iso: string) => {
-    const [y, m] = iso.split("-").map(Number);
-    return Math.max((y - today.getFullYear()) * 12 + (m - 1 - today.getMonth()), 1);
-  };
-  const scheduled: ScheduledExtra[] = extras.map((e) => ({
-    debtId: e.debt_id,
-    amount: e.amount,
-    month: monthsAway(e.paycheck_date),
-  }));
+  const scheduled = toScheduledExtras(extras, today);
   const plan = simulatePayoff(activeDebts, extra, strategy, true, scheduled);
   const ppm = paychecksPerMonth(sources);
   const perPaycheck = (monthly: number) =>

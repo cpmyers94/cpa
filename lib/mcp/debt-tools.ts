@@ -8,8 +8,14 @@ import {
   simulatePayoff,
   type Strategy,
 } from "../calc/debt-plan";
+import { toScheduledExtras } from "../debts/assignments";
 import { buildDebtPayload, type DebtInput } from "../debts/payload";
-import type { Debt, DebtType, InstallmentFrequency } from "../supabase/types";
+import type {
+  Debt,
+  DebtType,
+  InstallmentFrequency,
+  SnowballPayment,
+} from "../supabase/types";
 
 /**
  * Debt tools: view and edit debts through a tool interface, so an assistant can
@@ -332,7 +338,12 @@ async function getPayoffPlan(ctx: DebtToolContext, args: Args) {
   const active = debts.filter((d) => debtPayoff(d) > 0);
   if (active.length === 0) return { strategy, message: "No debts — nothing to plan." };
 
-  const plan = simulatePayoff(active, extra, strategy);
+  // Honour extra payments already assigned to a paycheck, so this answers the
+  // same as the app rather than re-deciding where the money goes.
+  const { data: extras } = await ctx.supabase.from("snowball_payments").select("*");
+  const scheduled = toScheduledExtras((extras ?? []) as SnowballPayment[]);
+
+  const plan = simulatePayoff(active, extra, strategy, true, scheduled);
   return {
     strategy,
     extra_per_month: extra,

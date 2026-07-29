@@ -9,8 +9,8 @@ import { Card } from "@/components/card";
 import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import { debtPayoff } from "@/lib/calc/debt-plan";
-import { buildPaycheckPlan, type AssignedSnowballPayment } from "@/lib/calc/paycheck-plan";
-import { clearedDatesFromAssignments } from "@/lib/calc/snowball-assign";
+import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
+import { toAssignedPayments, withoutClearedDebts } from "@/lib/debts/assignments";
 import type {
   Bill,
   Debt,
@@ -90,34 +90,13 @@ export default function DashboardPage() {
       targetAmount: g.target_amount,
     }));
   // Only extra payments actually assigned to a paycheck reduce its free-to-spend.
-  const assignedSnowball: AssignedSnowballPayment[] = payments.map((p) => ({
-    id: p.id,
-    incomeSourceId: p.income_source_id,
-    paycheckDate: p.paycheck_date,
-    targetName: debts.find((d) => d.id === p.debt_id)?.name.trim() ?? "debt",
-    amount: p.amount,
-  }));
+  const assignedSnowball = toAssignedPayments(payments, debts);
   // Debts an assigned payment pays off stop generating obligations afterwards.
-  const cleared = clearedDatesFromAssignments(
-    debts.map((d) => ({ id: d.id, payoff: debtPayoff(d) })),
-    payments.map((p) => ({
-      debtId: p.debt_id,
-      amount: p.amount,
-      paycheckDate: p.paycheck_date,
-    }))
-  );
-  const notCleared = (ob: { type: ObligationType; id: string; date: string }) => {
-    if (ob.type !== "debt") return true;
-    const clearedOn = cleared.get(ob.id);
-    return !clearedOn || ob.date <= clearedOn;
-  };
-  const planObligations = getObligations(
-    bills,
+  const planObligations = withoutClearedDebts(
+    getObligations(bills, debts, expenses, addDays(today, -7), addDays(today, WINDOW_DAYS + 30)),
     debts,
-    expenses,
-    addDays(today, -7),
-    addDays(today, WINDOW_DAYS + 30)
-  ).filter(notCleared);
+    payments
+  );
   const upcomingPaychecks = buildPaycheckPlan(
     sources,
     deductions,
@@ -131,8 +110,10 @@ export default function DashboardPage() {
     assignedSnowball
   );
 
-  const upcomingObligations = getObligations(bills, debts, expenses, today, rangeEnd).filter(
-    notCleared
+  const upcomingObligations = withoutClearedDebts(
+    getObligations(bills, debts, expenses, today, rangeEnd),
+    debts,
+    payments
   );
 
   const totalIncoming = sum(upcomingPaychecks.map((p) => p.net));

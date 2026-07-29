@@ -1,25 +1,22 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import Link from "next/link";
 import { addDays } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
-import { Card, ghostButtonClass } from "@/components/card";
+import { Card } from "@/components/card";
 import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import {
-  debtPayoff,
   evaluate,
   monthlyBnplObligation,
   orderedSnowballTargets,
   recommendSnowball,
 } from "@/lib/calc/debt-plan";
-import { buildPaycheckPlan, type AssignedSnowballPayment } from "@/lib/calc/paycheck-plan";
-import {
-  clearedDatesFromAssignments,
-  suggestSnowballPayments,
-} from "@/lib/calc/snowball-assign";
+import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
+import { suggestSnowballPayments } from "@/lib/calc/snowball-assign";
+import { toAssignedPayments, withoutClearedDebts } from "@/lib/debts/assignments";
 import type {
   Bill,
   Debt,
@@ -102,19 +99,7 @@ export default function SafeToSpendPage() {
 
   // A debt an assigned payment pays off stops costing anything after that
   // payday — drop its later installments so the payoff actually shows up.
-  const cleared = clearedDatesFromAssignments(
-    debts.map((d) => ({ id: d.id, payoff: debtPayoff(d) })),
-    payments.map((p) => ({
-      debtId: p.debt_id,
-      amount: p.amount,
-      paycheckDate: p.paycheck_date,
-    }))
-  );
-  const obligations = allObligations.filter((ob) => {
-    if (ob.type !== "debt") return true;
-    const clearedOn = cleared.get(ob.id);
-    return !clearedOn || ob.date <= clearedOn;
-  });
+  const obligations = withoutClearedDebts(allObligations, debts, payments);
 
   const monthlyBudget = monthlyBudgetExpenses(expenses);
 
@@ -131,16 +116,8 @@ export default function SafeToSpendPage() {
   const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, []);
   const monthlySnowball = settings?.extra_override ?? recommendSnowball(evaluation).recommended;
   const targets = orderedSnowballTargets(debts, strategy);
-  const debtName = (id: string) => debts.find((d) => d.id === id)?.name.trim() ?? "debt";
-
   // Only payments actually assigned to a paycheck are subtracted.
-  const assigned: AssignedSnowballPayment[] = payments.map((p) => ({
-    id: p.id,
-    incomeSourceId: p.income_source_id,
-    paycheckDate: p.paycheck_date,
-    targetName: debtName(p.debt_id),
-    amount: p.amount,
-  }));
+  const assigned = toAssignedPayments(payments, debts);
 
   const plan = buildPaycheckPlan(
     sources,
