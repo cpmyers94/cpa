@@ -192,11 +192,13 @@ export default function PlanPage() {
           automatically — you never pay more per month than you do today.
         </p>
         <p className="mt-2 text-xs text-neutral-500">
-          Your snowball is assigned to each paycheck on{" "}
+          This is a monthly budget, not a per-paycheck deduction.{" "}
           <Link href="/safe-to-spend" className="underline underline-offset-2">
             Safe to Spend
           </Link>{" "}
-          — every paycheck shows its recommended extra payment and the debt it goes to.
+          picks the paycheck each month with the most room to absorb it — so a heavy paycheck
+          already carrying rent and loan payments is left alone — and nothing comes out of
+          free-to-spend until you assign it.
         </p>
       </Card>
 

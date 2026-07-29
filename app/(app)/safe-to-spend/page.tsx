@@ -1,21 +1,21 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { addDays } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { useAsyncData } from "@/components/use-async-data";
-import { Card } from "@/components/card";
+import { Card, ghostButtonClass } from "@/components/card";
 import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
 import {
   evaluate,
   monthlyBnplObligation,
   orderedSnowballTargets,
-  paychecksPerMonth,
   recommendSnowball,
 } from "@/lib/calc/debt-plan";
-import { buildPaycheckPlan, type SnowballPlanInput } from "@/lib/calc/paycheck-plan";
+import { buildPaycheckPlan, type AssignedSnowballPayment } from "@/lib/calc/paycheck-plan";
+import { suggestSnowballPayments } from "@/lib/calc/snowball-assign";
 import type {
   Bill,
   Debt,
@@ -26,8 +26,11 @@ import type {
   PaycheckDeduction,
   PlanSettings,
   SavingsGoal,
+  SnowballPayment,
 } from "@/lib/supabase/types";
 import { Affordability } from "./affordability";
+import { SnowballSuggestionRow } from "./snowball-suggestion";
+import { assignSnowballPayment, unassignSnowballPayment } from "./mutations";
 
 const TYPE_DOT: Record<ObligationType, string> = {
   bill: "bg-amber-400",
@@ -39,8 +42,17 @@ export default function SafeToSpendPage() {
   const { supabase, user } = useAuth();
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, debts, expenses, goals, allocations, settings] =
-      await Promise.all([
+    const [
+      sources,
+      deductions,
+      bills,
+      debts,
+      expenses,
+      goals,
+      allocations,
+      settings,
+      payments,
+    ] = await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
         supabase.from("bills").select("*").eq("active", true),
@@ -49,6 +61,7 @@ export default function SafeToSpendPage() {
         supabase.from("savings_goals").select("*"),
         supabase.from("bill_allocations").select("*"),
         supabase.from("plan_settings").select("*").limit(1),
+        supabase.from("snowball_payments").select("*"),
       ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
@@ -59,16 +72,18 @@ export default function SafeToSpendPage() {
       goals: (goals.data ?? []) as SavingsGoal[],
       allocations: (allocations.data ?? []) as ObligationAllocation[],
       settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
+      payments: (payments.data ?? []) as SnowballPayment[],
     };
   }, [supabase]);
 
-  const { data } = useAsyncData(user ? load : null);
+  const { data, refresh } = useAsyncData(user ? load : null);
 
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, debts, expenses, goals, allocations, settings } = data;
+  const { sources, deductions, bills, debts, expenses, goals, allocations, settings, payments } =
+    data;
 
   const today = new Date();
   // Wide window so allocated obligation occurrences can be looked up by date —
@@ -86,18 +101,20 @@ export default function SafeToSpendPage() {
       targetAmount: g.target_amount,
     }));
 
-  // The household's payoff plan, resolved to a per-paycheck assignment: the
-  // monthly snowball split across paychecks and simulated forward, so each
-  // paycheck aims at the debt that's actually the target on that date.
   const strategy = settings?.strategy ?? "snowball";
   const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, []);
   const monthlySnowball = settings?.extra_override ?? recommendSnowball(evaluation).recommended;
   const targets = orderedSnowballTargets(debts, strategy);
-  const ppm = paychecksPerMonth(sources);
-  const snowball: SnowballPlanInput | null =
-    targets.length > 0 && ppm > 0 && monthlySnowball > 0
-      ? { perPaycheck: Math.round((monthlySnowball / ppm) * 100) / 100, targets }
-      : null;
+  const debtName = (id: string) => debts.find((d) => d.id === id)?.name.trim() ?? "debt";
+
+  // Only payments actually assigned to a paycheck are subtracted.
+  const assigned: AssignedSnowballPayment[] = payments.map((p) => ({
+    id: p.id,
+    incomeSourceId: p.income_source_id,
+    paycheckDate: p.paycheck_date,
+    targetName: debtName(p.debt_id),
+    amount: p.amount,
+  }));
 
   const plan = buildPaycheckPlan(
     sources,
@@ -109,9 +126,15 @@ export default function SafeToSpendPage() {
     today,
     addDays(today, 60),
     6,
-    snowball,
+    assigned,
     true // include the current pay period, not just upcoming ones
   );
+
+  // Where the next extra payment should come from: the paycheck with the most
+  // room, so nothing already owed on a tighter paycheck gets squeezed.
+  const suggestions = suggestSnowballPayments(plan, targets, monthlySnowball);
+  const suggestionFor = (sourceId: string, date: string) =>
+    suggestions.find((s) => s.incomeSourceId === sourceId && s.date === date);
 
   // Monthly money already headed to debt (minimums + BNPL). Extra surplus isn't
   // included here — this is the conservative "what's committed to debt" pace.
@@ -220,21 +243,23 @@ export default function SafeToSpendPage() {
                       <span>−{formatCurrency(entry.budgetReserve)}</span>
                     </div>
                   )}
-                  {entry.snowball.map((part, i) => (
+                  {entry.snowball.map((part) => (
                     <div
-                      key={`snow${i}`}
+                      key={part.id}
                       className="flex items-center justify-between font-medium text-purple-700 dark:text-purple-300"
                     >
                       <span className="flex items-center gap-2">
                         <span className="inline-block h-2 w-2 rounded-full bg-purple-500" />
-                        Snowball → {part.targetName}
-                        {part.paysOff ? (
-                          <span className="font-normal text-emerald-600 dark:text-emerald-400">
-                            pays it off! 🎉
-                          </span>
-                        ) : (
-                          <span className="font-normal text-neutral-400">recommended</span>
-                        )}
+                        Extra → {part.targetName}
+                        <button
+                          onClick={async () => {
+                            await unassignSnowballPayment(supabase, part.id);
+                            refresh();
+                          }}
+                          className="font-normal text-neutral-400 hover:underline"
+                        >
+                          remove
+                        </button>
                       </span>
                       <span>−{formatCurrency(part.amount)}</span>
                     </div>
@@ -246,6 +271,26 @@ export default function SafeToSpendPage() {
                       <p className="text-neutral-400">Nothing assigned to this paycheck yet.</p>
                     )}
                 </div>
+
+                {(() => {
+                  const s = suggestionFor(entry.incomeSourceId, entry.date);
+                  if (!s) return null;
+                  return (
+                    <SnowballSuggestionRow
+                      suggestion={s}
+                      onAssign={async (amount) => {
+                        if (!user) return;
+                        await assignSnowballPayment(supabase, user.id, {
+                          debtId: s.targetId,
+                          incomeSourceId: s.incomeSourceId,
+                          paycheckDate: s.date,
+                          amount,
+                        });
+                        refresh();
+                      }}
+                    />
+                  );
+                })()}
               </div>
             ))}
             <p className="text-xs text-neutral-500">
@@ -253,12 +298,9 @@ export default function SafeToSpendPage() {
               <Link href="/bills" className="underline underline-offset-2">
                 Bills page
               </Link>{" "}
-              (or use auto-assign) so this number stays honest. The purple snowball line is your{" "}
-              <Link href="/plan" className="underline underline-offset-2">
-                payoff plan
-              </Link>
-              &apos;s recommended extra debt payment from that paycheck — capped so it never
-              overdraws it.
+              (or use auto-assign) so this number stays honest. Extra debt payments are never
+              applied on their own — the app suggests the paycheck with the most room, and only the
+              ones you assign come out of free-to-spend.
             </p>
           </div>
         )}

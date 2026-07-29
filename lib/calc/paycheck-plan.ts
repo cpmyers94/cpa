@@ -29,21 +29,23 @@ export interface SavingsLine {
   completesGoal: boolean; // this contribution reaches the target (last one)
 }
 
-export interface SnowballTargetInput {
+/**
+ * An extra debt payment the user has assigned to a specific paycheck. Nothing
+ * is subtracted from a paycheck unless it's assigned — a recommendation applied
+ * to every paycheck was never how the money actually moved.
+ */
+export interface AssignedSnowballPayment {
   id: string;
-  name: string;
-  balance: number; // current payoff amount (BNPL: remaining installments)
-}
-
-export interface SnowballPlanInput {
-  perPaycheck: number; // recommended extra from each paycheck
-  targets: SnowballTargetInput[]; // strategy-ordered: [0] is attacked first
+  incomeSourceId: string;
+  paycheckDate: string;
+  targetName: string;
+  amount: number;
 }
 
 export interface SnowballPart {
+  id: string;
   targetName: string;
   amount: number;
-  paysOff: boolean; // this payment finishes the debt
 }
 
 export interface PaycheckPlanEntry {
@@ -57,10 +59,7 @@ export interface PaycheckPlanEntry {
   savings: SavingsLine[]; // per-paycheck savings set-asides
   savingsTotal: number;
   budgetReserve: number; // this paycheck's share of undated monthly budget
-  // Recommended snowball from this paycheck, capped at what's actually free so
-  // it never pushes the paycheck negative. Usually one part; more than one when
-  // this paycheck finishes a debt and its leftover rolls onto the next target.
-  // Empty = no debt left, or nothing free on this paycheck.
+  /** Extra debt payments assigned to this paycheck. Empty unless assigned. */
   snowball: SnowballPart[];
   snowballTotal: number;
   freeToSpend: number;
@@ -89,11 +88,9 @@ function allocationRef(a: ObligationAllocation): { type: ObligationType; id: str
  * fills to its target and then stops, freeing its contribution back into
  * free-to-spend — so nothing is double-counted.
  *
- * The snowball is resolved by a chronological mini-simulation: balances tick
- * down paycheck by paycheck, each paycheck aims its recommended extra at
- * whatever debt is the current target on that date, and when a payment
- * finishes a debt the leftover rolls onto the next target — so later paychecks
- * correctly point at the next debt instead of one that's already gone.
+ * Extra debt payments come in via `snowballPayments` and are subtracted only
+ * from the paycheck they're assigned to. Recommending where the next one should
+ * go is a separate concern — see `suggestSnowballPayments`.
  *
  * All date filtering compares calendar-day strings (never instants), so a
  * payday that lands *today* is never dropped for being "earlier than now."
@@ -111,7 +108,7 @@ export function buildPaycheckPlan(
   rangeStart: Date,
   rangeEnd: Date,
   limit = 6,
-  snowball: SnowballPlanInput | null = null,
+  snowballPayments: AssignedSnowballPayment[] = [],
   includeCurrent = false
 ): PaycheckPlanEntry[] {
   const monthlyIncome = monthlyNetIncome(sources, deductions);
@@ -215,30 +212,17 @@ export function buildPaycheckPlan(
     entry.freeToSpend = entry.freeBeforeSnowball;
   }
 
-  // Pass 2: walk paychecks in order, spending each one's recommended extra on
-  // the current target debt and rolling any leftover onto the next.
-  if (snowball && snowball.perPaycheck > 0 && snowball.targets.length > 0) {
-    const balances = snowball.targets.map((t) => ({ name: t.name, balance: t.balance }));
-    let i = 0; // index of the debt currently being attacked
+  // Snowball pass: subtract only the extra payments actually assigned to each
+  // paycheck. Nothing is projected onto paychecks the user didn't choose.
+  if (snowballPayments.length > 0) {
     for (const entry of entries) {
-      while (i < balances.length && balances[i].balance <= 0.005) i += 1;
-      if (i >= balances.length) break; // all debt cleared
-
-      let budget = Math.min(Math.max(entry.freeBeforeSnowball, 0), snowball.perPaycheck);
-      const parts: SnowballPart[] = [];
-      while (budget > 0.005 && i < balances.length) {
-        const t = balances[i];
-        if (t.balance <= 0.005) {
-          i += 1;
-          continue;
-        }
-        const pay = Math.min(budget, t.balance);
-        t.balance = Math.round((t.balance - pay) * 100) / 100;
-        budget = Math.round((budget - pay) * 100) / 100;
-        const paysOff = t.balance <= 0.005;
-        parts.push({ targetName: t.name, amount: Math.round(pay * 100) / 100, paysOff });
-        if (paysOff) i += 1;
-      }
+      const parts: SnowballPart[] = snowballPayments
+        .filter(
+          (p) =>
+            p.incomeSourceId === entry.incomeSourceId && p.paycheckDate === entry.date
+        )
+        .map((p) => ({ id: p.id, targetName: p.targetName, amount: p.amount }));
+      if (parts.length === 0) continue;
 
       entry.snowball = parts;
       entry.snowballTotal = Math.round(sum(parts.map((p) => p.amount)) * 100) / 100;

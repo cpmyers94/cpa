@@ -129,6 +129,15 @@ export interface DebtPayment extends Owned {
   created_at: string;
 }
 
+export interface SnowballPayment extends Owned {
+  id: string;
+  debt_id: string;
+  income_source_id: string;
+  paycheck_date: string;
+  amount: number;
+  created_at: string;
+}
+
 export interface PlanSettings {
   household_id: string;
   user_id: string;
