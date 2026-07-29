@@ -7,7 +7,8 @@ import { Card, inputClass, ghostButtonClass } from "@/components/card";
 import { formatCurrency, formatDate, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
 import { bnplScheduledTotal, debtPayoff } from "@/lib/calc/debt-plan";
 import { impliedBnplApr } from "@/lib/calc/bnpl";
-import type { Debt } from "@/lib/supabase/types";
+import { cardApr, SEGMENT_LABEL } from "@/lib/debts/segments";
+import type { Debt, DebtSegment } from "@/lib/supabase/types";
 import { addPayment, deleteDebt, payBnplInstallment } from "./mutations";
 import { DebtForm } from "./debt-form";
 
@@ -165,12 +166,53 @@ function RevolvingBody({ debt, editable, onChanged }: { debt: Debt; editable: bo
   );
 }
 
+/** The card's buckets, so it's obvious which dollars are cheap and for how long. */
+function SegmentBreakdown({ segments }: { segments: DebtSegment[] }) {
+  // Compared as calendar-day strings so the boundary doesn't shift by timezone.
+  const today = iso(new Date());
+  return (
+    <div className="mt-3 flex flex-col gap-1.5 border-t border-neutral-100 pt-3 text-xs dark:border-neutral-800">
+      {segments.map((s) => {
+        const expired = s.promo_ends_on != null && s.promo_ends_on < today;
+        const rate = expired && s.post_promo_apr != null ? s.post_promo_apr : s.apr;
+        return (
+          <div key={s.id} className="flex items-start justify-between gap-3">
+            <span className="text-neutral-600 dark:text-neutral-400">
+              {SEGMENT_LABEL[s.kind]}
+              <span className="ml-1.5 text-neutral-400">{rate}% APR</span>
+              {s.promo_ends_on && s.post_promo_apr != null && (
+                <span
+                  className={
+                    expired
+                      ? " block text-red-600 dark:text-red-400"
+                      : " block text-amber-600 dark:text-amber-400"
+                  }
+                >
+                  {expired
+                    ? `promo ended ${formatDate(s.promo_ends_on, { month: "short", day: "numeric" })} — now ${s.post_promo_apr}%`
+                    : `${s.apr}% until ${formatDate(s.promo_ends_on, { month: "short", day: "numeric", year: "numeric" })}, then ${s.post_promo_apr}%`}
+                </span>
+              )}
+            </span>
+            <span className="font-medium">{formatCurrency(s.balance)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 export function DebtCard({
   debt,
+  segments = [],
   editable,
   onChanged,
 }: {
   debt: Debt;
+  segments?: DebtSegment[];
   editable: boolean;
   onChanged: () => void;
 }) {
@@ -194,7 +236,12 @@ export function DebtCard({
   if (editing) {
     return (
       <Card title={`Edit ${debt.name}`}>
-        <DebtForm editing={debt} onChanged={onChanged} onDone={() => setEditing(false)} />
+        <DebtForm
+          editing={debt}
+          segments={segments}
+          onChanged={onChanged}
+          onDone={() => setEditing(false)}
+        />
       </Card>
     );
   }
@@ -213,7 +260,12 @@ export function DebtCard({
           </h3>
           <p className="text-xs text-neutral-500">
             {TYPE_LABEL[debt.type]}
-            {!isBnpl && ` · ${debt.interest_rate}% APR`}
+            {/* A split card has no single APR — the buckets below carry the
+                real rates, so showing a blended one here would only mislead. */}
+            {!isBnpl &&
+              (segments.length > 0
+                ? ` · ${cardApr(debt, segments)}% blended`
+                : ` · ${debt.interest_rate}% APR`)}
             {isBnpl && debt.interest_rate > 0 && (
               <>
                 {" · "}
@@ -234,7 +286,7 @@ export function DebtCard({
         </div>
         <div className="text-right">
           <p className="text-lg font-semibold">
-            {formatCurrency(isBnpl ? debtPayoff(debt) : debt.balance)}
+            {formatCurrency(debtPayoff(debt, segments))}
           </p>
           <p className="text-xs text-neutral-500">
             {isBnpl
@@ -245,6 +297,8 @@ export function DebtCard({
           </p>
         </div>
       </div>
+
+      {segments.length > 0 && <SegmentBreakdown segments={segments} />}
 
       {isBnpl ? (
         <BnplBody debt={debt} editable={editable} onChanged={onChanged} />

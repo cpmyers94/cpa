@@ -1,9 +1,53 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, addMonths } from "date-fns";
 import { buildDebtPayload } from "@/lib/debts/payload";
-import type { Debt, DebtType, InstallmentFrequency } from "@/lib/supabase/types";
+import {
+  buildSegments,
+  derivedCardTotals,
+  type SegmentRow,
+} from "@/lib/debts/segment-input";
+import type {
+  CardStructure,
+  Debt,
+  DebtType,
+  InstallmentFrequency,
+} from "@/lib/supabase/types";
 
 const num = (v: FormDataEntryValue | null) => (v ? Number(v) : null);
+
+/** The card's balance buckets as the form describes them. */
+function segmentRows(formData: FormData): SegmentRow[] {
+  const structure = (String(formData.get("card_structure") || "simple") ||
+    "simple") as CardStructure;
+  if (String(formData.get("type")) !== "credit_card") return [];
+  return buildSegments(structure, {
+    transferBalance: num(formData.get("transfer_balance")),
+    transferApr: num(formData.get("transfer_apr")),
+    promoEndsOn: String(formData.get("promo_ends_on") || "") || null,
+    postPromoApr: num(formData.get("post_promo_apr")),
+    purchaseBalance: num(formData.get("purchase_balance")),
+    purchaseApr: num(formData.get("purchase_apr")),
+  });
+}
+
+/**
+ * Replaces a card's segments in one shot. Segments are small and always
+ * rewritten together, so delete-then-insert keeps the stored set exactly equal
+ * to what the form describes — no stale bucket left behind when a card drops
+ * back to a single balance.
+ */
+async function writeSegments(
+  supabase: SupabaseClient,
+  userId: string,
+  debtId: string,
+  rows: SegmentRow[]
+) {
+  await supabase.from("debt_segments").delete().eq("debt_id", debtId);
+  if (rows.length === 0) return;
+  await supabase
+    .from("debt_segments")
+    .insert(rows.map((r) => ({ user_id: userId, debt_id: debtId, ...r })));
+}
 
 /** Maps the form into the shared payload builder used by every debt writer. */
 function debtPayload(formData: FormData) {
@@ -32,15 +76,36 @@ export async function addDebt(
   userId: string,
   formData: FormData
 ) {
-  await supabase.from("debts").insert({ user_id: userId, ...debtPayload(formData) });
+  const rows = segmentRows(formData);
+  const { data } = await supabase
+    .from("debts")
+    // A segmented card's balance and rate are the sum and weighted average of
+    // its buckets, never typed separately — one number, one place it comes from.
+    .insert({
+      user_id: userId,
+      ...debtPayload(formData),
+      ...(rows.length > 0 ? derivedCardTotals(rows) : {}),
+    })
+    .select("id")
+    .single();
+  if (data?.id) await writeSegments(supabase, userId, data.id as string, rows);
 }
 
 export async function updateDebt(
   supabase: SupabaseClient,
   id: string,
-  formData: FormData
+  formData: FormData,
+  userId?: string
 ) {
-  await supabase.from("debts").update(debtPayload(formData)).eq("id", id);
+  const rows = segmentRows(formData);
+  await supabase
+    .from("debts")
+    .update({
+      ...debtPayload(formData),
+      ...(rows.length > 0 ? derivedCardTotals(rows) : {}),
+    })
+    .eq("id", id);
+  if (userId) await writeSegments(supabase, userId, id, rows);
 }
 
 export async function deleteDebt(supabase: SupabaseClient, id: string) {

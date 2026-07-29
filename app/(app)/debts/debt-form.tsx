@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useAuth } from "@/components/auth";
 import { inputClass, buttonClass, ghostButtonClass } from "@/components/card";
-import type { Debt } from "@/lib/supabase/types";
+import { STRUCTURES, structureOf } from "@/lib/debts/segment-input";
+import type { CardStructure, Debt, DebtSegment } from "@/lib/supabase/types";
 import { addDebt, updateDebt } from "./mutations";
 
 const TYPES: { value: string; label: string }[] = [
@@ -19,15 +20,22 @@ const TYPES: { value: string; label: string }[] = [
 
 export function DebtForm({
   editing,
+  segments = [],
   onChanged,
   onDone,
 }: {
   editing?: Debt;
+  segments?: DebtSegment[];
   onChanged: () => void;
   onDone?: () => void;
 }) {
   const { supabase, user } = useAuth();
   const [type, setType] = useState<string>(editing?.type ?? "credit_card");
+  const [structure, setStructure] = useState<CardStructure>(() => structureOf(segments));
+
+  const transfer = segments.find((s) => s.kind === "balance_transfer");
+  const purchase = segments.find((s) => s.kind === "purchase");
+  const splitCard = structure !== "simple";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -35,11 +43,12 @@ export function DebtForm({
     const form = event.currentTarget;
     const formData = new FormData(form);
     if (editing) {
-      await updateDebt(supabase, editing.id, formData);
+      await updateDebt(supabase, editing.id, formData, user.id);
     } else {
       await addDebt(supabase, user.id, formData);
       form.reset();
       setType("credit_card");
+      setStructure("simple");
     }
     onChanged();
     onDone?.();
@@ -146,34 +155,142 @@ export function DebtForm({
         </>
       ) : (
         <>
-          <input
-            name="balance"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Balance"
-            required
-            defaultValue={editing?.balance ?? undefined}
-            className={inputClass}
-          />
-          <input
-            name="interest_rate"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="APR %"
-            defaultValue={editing?.interest_rate ?? undefined}
-            className={inputClass}
-          />
-          <input
-            name="minimum_payment"
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder="Min payment /mo"
-            defaultValue={editing?.minimum_payment ?? undefined}
-            className={inputClass}
-          />
+          {type === "credit_card" && (
+            <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-2">
+              How is this card carrying a balance?
+              <select
+                name="card_structure"
+                value={structure}
+                onChange={(e) => setStructure(e.target.value as CardStructure)}
+                className={inputClass}
+              >
+                {STRUCTURES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11px] text-neutral-400">
+                {STRUCTURES.find((s) => s.value === structure)?.hint}
+              </span>
+            </label>
+          )}
+
+          {!splitCard && (
+            <>
+              <input
+                name="balance"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Balance"
+                required
+                defaultValue={editing?.balance ?? undefined}
+                className={inputClass}
+              />
+              <input
+                name="interest_rate"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="APR %"
+                defaultValue={editing?.interest_rate ?? undefined}
+                className={inputClass}
+              />
+            </>
+          )}
+
+          {splitCard && (
+            <>
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+                Transferred balance
+                <input
+                  name="transfer_balance"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  defaultValue={transfer?.balance ?? undefined}
+                  className={inputClass}
+                />
+              </label>
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+                Transfer APR % (often 0)
+                <input
+                  name="transfer_apr"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0"
+                  defaultValue={transfer?.apr ?? 0}
+                  className={inputClass}
+                />
+              </label>
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+                Promo ends
+                <input
+                  name="promo_ends_on"
+                  type="date"
+                  defaultValue={transfer?.promo_ends_on ?? undefined}
+                  className={inputClass}
+                />
+              </label>
+              <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+                Rate after promo %
+                <input
+                  name="post_promo_apr"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 24.4"
+                  defaultValue={transfer?.post_promo_apr ?? undefined}
+                  className={inputClass}
+                />
+              </label>
+
+              {structure === "transfer_and_purchases" && (
+                <>
+                  <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+                    Purchase balance
+                    <input
+                      name="purchase_balance"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      defaultValue={purchase?.balance ?? undefined}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+                    Purchase APR %
+                    <input
+                      name="purchase_apr"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="e.g. 24.4"
+                      defaultValue={purchase?.apr ?? undefined}
+                      className={inputClass}
+                    />
+                  </label>
+                </>
+              )}
+            </>
+          )}
+
+          <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+            Min payment /mo
+            <input
+              name="minimum_payment"
+              type="number"
+              step="0.01"
+              min="0"
+              required
+              defaultValue={editing?.minimum_payment || undefined}
+              className={inputClass}
+            />
+          </label>
           <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
             Payment due day
             <input

@@ -8,12 +8,14 @@ import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, formatDate, sum } from "@/lib/calc/money";
 import { getObligations, monthlyBudgetExpenses } from "@/lib/calc/obligations";
-import { debtPayoff } from "@/lib/calc/debt-plan";
+import { debtPayoff, paychecksPerMonth } from "@/lib/calc/debt-plan";
+import { promoDeadlines } from "@/lib/debts/segments";
 import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
 import { toAssignedPayments, withoutClearedDebts } from "@/lib/debts/assignments";
 import type {
   Bill,
   Debt,
+  DebtSegment,
   Expense,
   IncomeSource,
   ObligationAllocation,
@@ -33,6 +35,7 @@ type DashboardData = {
   allocations: ObligationAllocation[];
   goals: SavingsGoal[];
   debts: Debt[];
+  segments: DebtSegment[];
   payments: SnowballPayment[];
 };
 
@@ -44,8 +47,17 @@ export default function DashboardPage() {
   const { supabase, user } = useAuth();
 
   const load = useCallback(async (): Promise<DashboardData> => {
-    const [sources, deductions, bills, expenses, allocations, goals, debts, payments] =
-      await Promise.all([
+    const [
+      sources,
+      deductions,
+      bills,
+      expenses,
+      allocations,
+      goals,
+      debts,
+      segments,
+      payments,
+    ] = await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
         supabase.from("bills").select("*").eq("active", true),
@@ -53,6 +65,7 @@ export default function DashboardPage() {
         supabase.from("bill_allocations").select("*"),
         supabase.from("savings_goals").select("*"),
         supabase.from("debts").select("*"),
+        supabase.from("debt_segments").select("*"),
         supabase.from("snowball_payments").select("*"),
       ]);
     return {
@@ -63,6 +76,7 @@ export default function DashboardPage() {
       allocations: (allocations.data ?? []) as ObligationAllocation[],
       goals: (goals.data ?? []) as SavingsGoal[],
       debts: (debts.data ?? []) as Debt[],
+      segments: (segments.data ?? []) as DebtSegment[],
       payments: (payments.data ?? []) as SnowballPayment[],
     };
   }, [supabase]);
@@ -73,7 +87,8 @@ export default function DashboardPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, expenses, allocations, goals, debts, payments } = data;
+  const { sources, deductions, bills, expenses, allocations, goals, debts, segments, payments } =
+    data;
 
   const today = new Date();
   const rangeEnd = addDays(today, WINDOW_DAYS);
@@ -125,7 +140,10 @@ export default function DashboardPage() {
       )
   ).length;
 
-  const totalDebt = sum(debts.map(debtPayoff));
+  const totalDebt = sum(debts.map((d) => debtPayoff(d, segments)));
+  // Promo rates that are about to lapse, as the per-paycheck amount that beats
+  // the deadline — a 0% transfer is only a deal if it's gone before it reverts.
+  const deadlines = promoDeadlines(debts, segments, paychecksPerMonth(sources), today);
   const totalSaved = sum(goals.map((g) => g.current_amount));
   const goalTarget = sum(goals.map((g) => g.target_amount ?? 0));
 
@@ -169,6 +187,38 @@ export default function DashboardPage() {
           </Link>
         </Card>
       </div>
+
+      {deadlines.map((d) => (
+        <div
+          key={d.segmentId}
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            d.expired
+              ? "border-red-300 bg-red-50 text-red-900 dark:border-red-500/40 dark:bg-red-950/40 dark:text-red-200"
+              : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200"
+          }`}
+        >
+          {d.expired ? (
+            <>
+              <strong>{d.debtName}</strong>&apos;s promo rate ended{" "}
+              {formatDate(d.endsOn, { month: "long", day: "numeric" })}.{" "}
+              {formatCurrency(d.balance)} is now accruing at {d.postPromoApr}% —{" "}
+              {formatCurrency(d.costIfMissed)}/yr. This is the most expensive money you carry.
+            </>
+          ) : (
+            <>
+              <strong>{d.debtName}</strong>: {formatCurrency(d.balance)} at {d.apr}% until{" "}
+              {formatDate(d.endsOn, { month: "long", day: "numeric", year: "numeric" })}, then{" "}
+              {d.postPromoApr}%.{" "}
+              <strong>
+                {formatCurrency(d.perPaycheck)} per paycheck
+                {d.paychecksLeft > 0 && ` for the next ${d.paychecksLeft}`}
+              </strong>{" "}
+              clears it in time. Miss the date and what&apos;s left starts costing{" "}
+              {formatCurrency(d.costIfMissed)}/yr.
+            </>
+          )}
+        </div>
+      ))}
 
       {unallocatedCount > 0 && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200">

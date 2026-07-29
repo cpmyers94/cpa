@@ -12,6 +12,9 @@ export type DebtType =
   | "other";
 
 export type InstallmentFrequency = "weekly" | "biweekly" | "monthly";
+export type SegmentKind = "purchase" | "balance_transfer" | "cash_advance";
+/** How a card carries its balance — the shape the user picks on the debt form. */
+export type CardStructure = "simple" | "transfer" | "transfer_and_purchases";
 
 interface Owned {
   user_id: string;
@@ -119,6 +122,26 @@ export interface Debt extends Owned {
   // (less than the remaining installments for interest-bearing BNPL). Null =
   // no discount known, so the scheduled total stands in.
   settlement_amount: number | null;
+  created_at: string;
+}
+
+/**
+ * One balance bucket on a card, at its own rate. Where a card has segments they
+ * are the source of truth: `Debt.balance` and `Debt.interest_rate` are derived
+ * from them rather than typed separately.
+ */
+export interface DebtSegment extends Owned {
+  id: string;
+  debt_id: string;
+  kind: SegmentKind;
+  balance: number;
+  /** The rate charged today. On a promo segment this is the promo rate. */
+  apr: number;
+  /** When `apr` stops applying. Null = no promo, the rate is permanent. */
+  promo_ends_on: string | null;
+  /** The rate this segment reverts to once the promo ends. */
+  post_promo_apr: number | null;
+  position: number;
   created_at: string;
 }
 

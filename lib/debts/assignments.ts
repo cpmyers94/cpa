@@ -2,7 +2,7 @@ import { debtPayoff, type ScheduledExtra } from "../calc/debt-plan";
 import type { Obligation } from "../calc/obligations";
 import type { AssignedSnowballPayment } from "../calc/paycheck-plan";
 import { clearedDatesFromAssignments } from "../calc/snowball-assign";
-import type { Debt, SnowballPayment } from "../supabase/types";
+import type { Debt, DebtSegment, SnowballPayment } from "../supabase/types";
 
 /**
  * Assigned extra payments are a source of truth that every debt calculation has
@@ -53,11 +53,12 @@ export function toScheduledExtras(
 export function withoutClearedDebts(
   obligations: Obligation[],
   debts: Debt[],
-  payments: SnowballPayment[]
+  payments: SnowballPayment[],
+  segments: DebtSegment[] = []
 ): Obligation[] {
   if (payments.length === 0) return obligations;
   const cleared = clearedDatesFromAssignments(
-    debts.map((d) => ({ id: d.id, payoff: debtPayoff(d) })),
+    debts.map((d) => ({ id: d.id, payoff: debtPayoff(d, segments) })),
     payments.map((p) => ({
       debtId: p.debt_id,
       amount: p.amount,

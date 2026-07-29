@@ -5,14 +5,18 @@ import {
   debtPayoff,
   monthlyBnplObligation,
   orderedSnowballTargets,
+  paychecksPerMonth,
   simulatePayoff,
   type Strategy,
 } from "../calc/debt-plan";
 import { toScheduledExtras } from "../debts/assignments";
+import { promoDeadlines, segmentsFor, SEGMENT_LABEL } from "../debts/segments";
 import { buildDebtPayload, type DebtInput } from "../debts/payload";
 import type {
   Debt,
+  DebtSegment,
   DebtType,
+  IncomeSource,
   InstallmentFrequency,
   SnowballPayment,
 } from "../supabase/types";
@@ -74,8 +78,12 @@ function bnplMonthlyObligation(debt: Debt): number {
 }
 
 /** Model-facing view of a debt, with the derived numbers already worked out. */
-export function describeDebt(debt: Debt): Record<string, unknown> {
-  const payoff = round2(debtPayoff(debt));
+export function describeDebt(
+  debt: Debt,
+  segments: DebtSegment[] = []
+): Record<string, unknown> {
+  const payoff = round2(debtPayoff(debt, segments));
+  const own = segmentsFor(debt.id, segments);
 
   if (debt.type === "bnpl") {
     const scheduled = round2(bnplScheduledTotal(debt));
@@ -103,11 +111,30 @@ export function describeDebt(debt: Debt): Record<string, unknown> {
     type: debt.type,
     payoff_today: payoff,
     balance: debt.balance,
+    // A split card has no single rate; the segments carry the real ones and
+    // interest_rate_apr is only their balance-weighted average.
     interest_rate_apr: debt.interest_rate,
     apr_source: debt.apr_manual ? "user" : "derived",
     minimum_payment: debt.minimum_payment,
     due_day: debt.due_day,
+    ...(own.length > 0
+      ? {
+          segments: own.map((s) => ({
+            kind: s.kind,
+            label: SEGMENT_LABEL[s.kind],
+            balance: s.balance,
+            apr: s.apr,
+            promo_ends_on: s.promo_ends_on,
+            apr_after_promo: s.post_promo_apr,
+          })),
+        }
+      : {}),
   };
+}
+
+async function loadSegments(ctx: DebtToolContext): Promise<DebtSegment[]> {
+  const { data } = await ctx.supabase.from("debt_segments").select("*");
+  return (data ?? []) as DebtSegment[];
 }
 
 async function loadDebts(ctx: DebtToolContext): Promise<Debt[]> {
@@ -315,16 +342,16 @@ const str = (a: Args, k: string) => (a[k] == null ? undefined : String(a[k]));
 const numOf = (a: Args, k: string) => (a[k] == null ? undefined : Number(a[k]));
 
 async function listDebts(ctx: DebtToolContext) {
-  const debts = await loadDebts(ctx);
-  const active = debts.filter((d) => debtPayoff(d) > 0);
+  const [debts, segments] = await Promise.all([loadDebts(ctx), loadSegments(ctx)]);
+  const active = debts.filter((d) => debtPayoff(d, segments) > 0);
   const monthlyMinimums = active
     .filter((d) => d.type !== "bnpl")
     .reduce((sum, d) => sum + d.minimum_payment, 0);
   return {
-    debts: debts.map(describeDebt),
+    debts: debts.map((d) => describeDebt(d, segments)),
     totals: {
       count: debts.length,
-      total_payoff_today: round2(debts.reduce((sum, d) => sum + debtPayoff(d), 0)),
+      total_payoff_today: round2(debts.reduce((sum, d) => sum + debtPayoff(d, segments), 0)),
       monthly_minimums: round2(monthlyMinimums),
       monthly_bnpl: round2(monthlyBnplObligation(debts)),
     },
@@ -332,10 +359,10 @@ async function listDebts(ctx: DebtToolContext) {
 }
 
 async function getPayoffPlan(ctx: DebtToolContext, args: Args) {
-  const debts = await loadDebts(ctx);
+  const [debts, segments] = await Promise.all([loadDebts(ctx), loadSegments(ctx)]);
   const strategy: Strategy = args.strategy === "avalanche" ? "avalanche" : "snowball";
   const extra = numOf(args, "extra_per_month") ?? 0;
-  const active = debts.filter((d) => debtPayoff(d) > 0);
+  const active = debts.filter((d) => debtPayoff(d, segments) > 0);
   if (active.length === 0) return { strategy, message: "No debts — nothing to plan." };
 
   // Honour extra payments already assigned to a paycheck, so this answers the
@@ -343,19 +370,46 @@ async function getPayoffPlan(ctx: DebtToolContext, args: Args) {
   const { data: extras } = await ctx.supabase.from("snowball_payments").select("*");
   const scheduled = toScheduledExtras((extras ?? []) as SnowballPayment[]);
 
-  const plan = simulatePayoff(active, extra, strategy, true, scheduled);
+  const plan = simulatePayoff(active, extra, strategy, true, scheduled, segments);
+
+  // A promo rate about to revert is the one deadline a payoff plan can't just
+  // sort its way around, so it rides along with the plan — as a per-paycheck
+  // amount, in the user's own pay cadence.
+  const { data: sources } = await ctx.supabase
+    .from("income_sources")
+    .select("*")
+    .eq("active", true);
+  const deadlines = promoDeadlines(
+    active,
+    segments,
+    paychecksPerMonth((sources ?? []) as IncomeSource[])
+  );
+
   return {
     strategy,
     extra_per_month: extra,
     monthly_outlay: plan.budget,
     months_to_debt_free: plan.capped ? null : plan.months,
     total_interest: plan.totalInterest,
-    attack_order: orderedSnowballTargets(active, strategy).map((t) => t.name.trim()),
+    attack_order: orderedSnowballTargets(active, strategy, segments).map((t) =>
+      t.name.trim()
+    ),
     payoffs: plan.payoffs.map((p) => ({
       name: p.name.trim(),
       month: p.month,
       frees_per_month: p.freed,
       snowball_after: p.snowballAfter,
+    })),
+    promo_deadlines: deadlines.map((d) => ({
+      debt: d.debtName,
+      balance: d.balance,
+      apr_now: d.apr,
+      apr_after: d.postPromoApr,
+      ends_on: d.endsOn,
+      expired: d.expired,
+      paychecks_left: d.paychecksLeft,
+      per_paycheck_to_clear_in_time: d.perPaycheck,
+      yearly_cost_if_missed: d.costIfMissed,
     })),
   };
 }
@@ -519,9 +573,13 @@ const handlers: Record<
   (ctx: DebtToolContext, args: Args) => Promise<unknown>
 > = {
   list_debts: (ctx) => listDebts(ctx),
-  get_debt: async (ctx, args) => ({
-    debt: describeDebt(await resolveDebt(ctx, String(args.debt))),
-  }),
+  get_debt: async (ctx, args) => {
+    const [debt, segments] = await Promise.all([
+      resolveDebt(ctx, String(args.debt)),
+      loadSegments(ctx),
+    ]);
+    return { debt: describeDebt(debt, segments) };
+  },
   get_payoff_plan: getPayoffPlan,
   add_debt: addDebt,
   update_debt: updateDebt,

@@ -2,11 +2,20 @@ import type {
   Bill,
   Debt,
   DebtPayment,
+  DebtSegment,
   Expense,
   IncomeSource,
   PaycheckDeduction,
   SavingsGoal,
 } from "../supabase/types";
+import {
+  aprOn,
+  applyToParts,
+  cardBalance,
+  debtParts,
+  marginalApr,
+  type DebtPart,
+} from "../debts/segments";
 import { bnplPayoff } from "./bnpl";
 import { sum } from "./money";
 import { monthlyExpenses } from "./obligations";
@@ -117,10 +126,11 @@ export function bnplScheduledTotal(debt: Debt): number {
  * What you'd owe to clear a debt today. For BNPL, in order of preference: the
  * lender's own payoff figure, then the payoff computed from the plan's APR
  * (present value of the remaining installments), then — with no rate to go on —
- * the scheduled total. For everything else, the balance.
+ * the scheduled total. For a card, the sum of its balance segments, which is
+ * the stored balance when it has none.
  */
-export function debtPayoff(debt: Debt): number {
-  if (debt.type !== "bnpl") return debt.balance;
+export function debtPayoff(debt: Debt, segments: DebtSegment[] = []): number {
+  if (debt.type !== "bnpl") return cardBalance(debt, segments);
   if (debt.settlement_amount != null) return debt.settlement_amount;
   if (debt.interest_rate > 0) {
     return bnplPayoff(
@@ -170,13 +180,14 @@ export function evaluate(
   expenses: Expense[],
   goals: SavingsGoal[],
   debts: Debt[],
-  payments: DebtPayment[]
+  payments: DebtPayment[],
+  segments: DebtSegment[] = []
 ): Evaluation {
   const income = monthlyNetIncome(sources, deductions);
   const billTotal = monthlyBills(bills);
   const expenseTotal = monthlyExpenses(expenses);
   const goalTotal = monthlySavingsContribution(sources, goals);
-  const revolving = debts.filter((d) => d.type !== "bnpl" && d.balance > 0);
+  const revolving = debts.filter((d) => d.type !== "bnpl" && cardBalance(d, segments) > 0);
   const minimums = sum(revolving.map((d) => d.minimum_payment));
   const bnpl = monthlyBnplObligation(debts);
   const committed = minimums + bnpl;
@@ -207,7 +218,9 @@ export function evaluate(
     });
   }
 
-  const highApr = revolving.filter((d) => d.interest_rate >= 15);
+  // A card holding a 0% transfer next to 24% purchases is a high-APR card at
+  // the margin, so it's the costliest bucket that decides.
+  const highApr = revolving.filter((d) => marginalApr(d, segments) >= 15);
   if (goalTotal > 0 && highApr.length > 0) {
     findings.push({
       kind: "info",
@@ -307,7 +320,8 @@ export type Strategy = "avalanche" | "snowball";
  */
 export function orderedSnowballTargets(
   debts: Debt[],
-  strategy: Strategy
+  strategy: Strategy,
+  segments: DebtSegment[] = []
 ): { id: string; name: string; balance: number }[] {
   return debts
     .map((d) => ({
@@ -315,8 +329,11 @@ export function orderedSnowballTargets(
       name: d.name,
       // BNPL carries a real rate too — often above a credit card's — so it
       // takes part in avalanche ordering on the same footing.
-      balance: debtPayoff(d),
-      rate: d.interest_rate,
+      balance: debtPayoff(d, segments),
+      // A card's segments each have their own rate, and an extra dollar goes to
+      // the most expensive one — so that, not the card's average, is what
+      // avalanche is choosing between.
+      rate: d.type === "bnpl" ? d.interest_rate : marginalApr(d, segments),
     }))
     .filter((c) => c.balance > 0)
     .sort((a, b) =>
@@ -358,22 +375,35 @@ export interface ScheduledExtra {
   month: number;
 }
 
+interface SimItem {
+  id: string;
+  name: string;
+  type: "bnpl" | "revolving";
+  /** Balance buckets, each at its own rate. Cards without segments have one. */
+  parts: DebtPart[];
+  min: number;
+  paidOffMonth: number;
+}
+
+const balanceOf = (d: SimItem) => sum(d.parts.map((p) => p.balance));
+
 export function simulatePayoff(
   debts: Debt[],
   extraPerMonth: number,
   strategy: Strategy,
   rollover = true,
-  scheduled: ScheduledExtra[] = []
+  scheduled: ScheduledExtra[] = [],
+  segments: DebtSegment[] = [],
+  today = new Date()
 ): PlanResult {
-  const items = [
+  const items: SimItem[] = [
     ...debts
-      .filter((d) => d.type !== "bnpl" && d.balance > 0)
+      .filter((d) => d.type !== "bnpl" && cardBalance(d, segments) > 0)
       .map((d) => ({
         id: d.id,
         name: d.name,
         type: "revolving" as const,
-        balance: d.balance,
-        rate: d.interest_rate / 100 / 12,
+        parts: debtParts(d, segments).map((p) => ({ ...p })),
         min: d.minimum_payment,
         paidOffMonth: 0,
       })),
@@ -388,14 +418,22 @@ export function simulatePayoff(
         // installment pays it down. Ride the schedule and it clears in exactly
         // the payments remaining; settle early and the unaccrued interest is
         // never charged — both fall out of the same arithmetic.
-        balance: debtPayoff(d),
-        rate: d.interest_rate / 100 / 12,
+        parts: [
+          {
+            id: d.id,
+            kind: "purchase" as const,
+            balance: debtPayoff(d),
+            apr: d.interest_rate,
+            promoEndsOn: null,
+            postPromoApr: null,
+          },
+        ],
         min: bnplPaymentsPerMonth(d) * (d.installment_amount ?? 0),
         paidOffMonth: 0,
       })),
   ];
 
-  const startMinimums = sum(items.map((d) => Math.min(d.min, d.balance)));
+  const startMinimums = sum(items.map((d) => Math.min(d.min, balanceOf(d))));
   const budget = startMinimums + extraPerMonth;
 
   let month = 0;
@@ -403,35 +441,51 @@ export function simulatePayoff(
   let feasible = true;
   const CAP = 600;
 
-  const active = () => items.filter((d) => d.balance > 0.005);
-  const pickTarget = () => {
+  const active = () => items.filter((d) => balanceOf(d) > 0.005);
+  // The rate that matters for ordering is the one the next extra dollar avoids,
+  // which is the costliest bucket still carrying a balance — not the card's
+  // blended average.
+  const topRate = (d: SimItem, on: Date) =>
+    Math.max(0, ...d.parts.filter((p) => p.balance > 0).map((p) => aprOn(p, on)));
+  const pickTarget = (on: Date) => {
     const candidates = active();
     if (candidates.length === 0) return null;
     return candidates.sort((a, b) =>
       strategy === "avalanche"
-        ? b.rate - a.rate || a.balance - b.balance
-        : a.balance - b.balance || b.rate - a.rate
+        ? topRate(b, on) - topRate(a, on) || balanceOf(a) - balanceOf(b)
+        : balanceOf(a) - balanceOf(b) || topRate(b, on) - topRate(a, on)
     )[0];
+  };
+  const settle = (d: SimItem, m: number) => {
+    if (balanceOf(d) <= 0.005) {
+      for (const p of d.parts) p.balance = 0;
+      if (d.paidOffMonth === 0) d.paidOffMonth = m;
+    }
   };
 
   while (month < CAP && active().length > 0) {
     month += 1;
+    // The calendar date this simulated month lands on, so a promo rate expires
+    // partway through the projection exactly when it expires in real life.
+    const on = new Date(today.getFullYear(), today.getMonth() + month - 1, 1);
 
-    // 1. Interest accrues, minimums / installments get paid.
+    // 1. Interest accrues per bucket at its own rate, then the minimum is paid.
+    // Issuers allocate the minimum to the cheapest balance first, which is
+    // precisely why a 0% transfer can sit untouched while purchases compound.
     let paidThisMonth = 0;
     for (const d of active()) {
-      if (d.rate > 0) {
-        const interest = d.balance * d.rate;
-        totalInterest += interest;
-        d.balance += interest;
+      for (const part of d.parts) {
+        const rate = aprOn(part, on) / 100 / 12;
+        if (rate > 0 && part.balance > 0) {
+          const interest = part.balance * rate;
+          totalInterest += interest;
+          part.balance += interest;
+        }
       }
-      const payment = Math.min(d.min, d.balance);
-      d.balance -= payment;
+      const payment = Math.min(d.min, balanceOf(d));
+      applyToParts(d.parts, payment, "cheapest_first", on);
       paidThisMonth += payment;
-      if (d.balance <= 0.005) {
-        d.balance = 0;
-        d.paidOffMonth = month;
-      }
+      settle(d, month);
     }
 
     // 2. Extra payments already assigned to this month go to the debt they
@@ -443,14 +497,11 @@ export function simulatePayoff(
       extraThisMonth = sum(dueNow.map((s) => s.amount));
       for (const s of dueNow) {
         const target = items.find((d) => d.id === s.debtId);
-        if (!target || target.balance <= 0.005) continue;
-        const payment = Math.min(s.amount, target.balance);
-        target.balance -= payment;
+        if (!target || balanceOf(target) <= 0.005) continue;
+        const payment = Math.min(s.amount, balanceOf(target));
+        applyToParts(target.parts, payment, "costliest_first", on);
         paidThisMonth += payment;
-        if (target.balance <= 0.005) {
-          target.balance = 0;
-          target.paidOffMonth = month;
-        }
+        settle(target, month);
       }
     }
 
@@ -459,19 +510,17 @@ export function simulatePayoff(
     if (paidThisMonth > monthlyBudget + 0.01) feasible = false;
 
     // 3. Whatever's left of the budget — the snowball — attacks the target
-    // debt(s) chosen by the strategy.
+    // debt(s) chosen by the strategy. Above-minimum money must go to the
+    // highest rate on the card it lands on (Reg Z §1026.53).
     if (rollover) {
       let pool = Math.max(monthlyBudget - paidThisMonth, 0);
-      let target = pickTarget();
+      let target = pickTarget(on);
       while (target && pool > 0.005) {
-        const payment = Math.min(pool, target.balance);
-        target.balance -= payment;
+        const payment = Math.min(pool, balanceOf(target));
+        applyToParts(target.parts, payment, "costliest_first", on);
         pool -= payment;
-        if (target.balance <= 0.005) {
-          target.balance = 0;
-          target.paidOffMonth = month;
-          target = pickTarget();
-        }
+        settle(target, month);
+        if (balanceOf(target) <= 0.005) target = pickTarget(on);
       }
     }
   }

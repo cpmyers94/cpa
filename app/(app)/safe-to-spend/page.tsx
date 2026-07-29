@@ -20,6 +20,7 @@ import { toAssignedPayments, withoutClearedDebts } from "@/lib/debts/assignments
 import type {
   Bill,
   Debt,
+  DebtSegment,
   Expense,
   IncomeSource,
   ObligationAllocation,
@@ -53,6 +54,7 @@ export default function SafeToSpendPage() {
       allocations,
       settings,
       payments,
+      segments,
     ] = await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
@@ -63,6 +65,7 @@ export default function SafeToSpendPage() {
         supabase.from("bill_allocations").select("*"),
         supabase.from("plan_settings").select("*").limit(1),
         supabase.from("snowball_payments").select("*"),
+        supabase.from("debt_segments").select("*"),
       ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
@@ -74,6 +77,7 @@ export default function SafeToSpendPage() {
       allocations: (allocations.data ?? []) as ObligationAllocation[],
       settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
       payments: (payments.data ?? []) as SnowballPayment[],
+      segments: (segments.data ?? []) as DebtSegment[],
     };
   }, [supabase]);
 
@@ -83,8 +87,18 @@ export default function SafeToSpendPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, debts, expenses, goals, allocations, settings, payments } =
-    data;
+  const {
+    sources,
+    deductions,
+    bills,
+    debts,
+    expenses,
+    goals,
+    allocations,
+    settings,
+    payments,
+    segments,
+  } = data;
 
   const today = new Date();
   // Wide window so allocated obligation occurrences can be looked up by date —
@@ -99,7 +113,7 @@ export default function SafeToSpendPage() {
 
   // A debt an assigned payment pays off stops costing anything after that
   // payday — drop its later installments so the payoff actually shows up.
-  const obligations = withoutClearedDebts(allObligations, debts, payments);
+  const obligations = withoutClearedDebts(allObligations, debts, payments, segments);
 
   const monthlyBudget = monthlyBudgetExpenses(expenses);
 
@@ -113,9 +127,9 @@ export default function SafeToSpendPage() {
     }));
 
   const strategy = settings?.strategy ?? "snowball";
-  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, []);
+  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, [], segments);
   const monthlySnowball = settings?.extra_override ?? recommendSnowball(evaluation).recommended;
-  const targets = orderedSnowballTargets(debts, strategy);
+  const targets = orderedSnowballTargets(debts, strategy, segments);
   // Only payments actually assigned to a paycheck are subtracted.
   const assigned = toAssignedPayments(payments, debts);
 

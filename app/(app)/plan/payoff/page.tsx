@@ -20,6 +20,7 @@ import { toScheduledExtras } from "@/lib/debts/assignments";
 import type {
   Bill,
   Debt,
+  DebtSegment,
   DebtPayment,
   Expense,
   IncomeSource,
@@ -44,8 +45,18 @@ function PayoffDetail() {
   const extraParam = params.get("extra");
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, expenses, goals, debts, payments, settings, extras] =
-      await Promise.all([
+    const [
+      sources,
+      deductions,
+      bills,
+      expenses,
+      goals,
+      debts,
+      payments,
+      settings,
+      extras,
+      segments,
+    ] = await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
         supabase.from("bills").select("*").eq("active", true),
@@ -55,6 +66,7 @@ function PayoffDetail() {
         supabase.from("debt_payments").select("*"),
         supabase.from("plan_settings").select("*").limit(1),
         supabase.from("snowball_payments").select("*"),
+        supabase.from("debt_segments").select("*"),
       ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
@@ -66,6 +78,7 @@ function PayoffDetail() {
       payments: (payments.data ?? []) as DebtPayment[],
       settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
       extras: (extras.data ?? []) as SnowballPayment[],
+      segments: (segments.data ?? []) as DebtSegment[],
     };
   }, [supabase]);
 
@@ -75,7 +88,18 @@ function PayoffDetail() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, expenses, goals, debts, payments, settings, extras } = data;
+  const {
+    sources,
+    deductions,
+    bills,
+    expenses,
+    goals,
+    debts,
+    payments,
+    settings,
+    extras,
+    segments,
+  } = data;
   const activeDebts = debts.filter(
     (d) => d.balance > 0 || (d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
   );
@@ -93,7 +117,7 @@ function PayoffDetail() {
     );
   }
 
-  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, payments);
+  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, payments, segments);
   const recommendation = recommendSnowball(evaluation);
   const strategy: Strategy =
     strategyParam === "snowball" || strategyParam === "avalanche"
@@ -108,7 +132,7 @@ function PayoffDetail() {
   // Honour payments already assigned to a paycheck, so this matches the Plan
   // page and Safe to Spend rather than re-deciding where the money goes.
   const scheduled = toScheduledExtras(extras, today);
-  const plan = simulatePayoff(activeDebts, extra, strategy, true, scheduled);
+  const plan = simulatePayoff(activeDebts, extra, strategy, true, scheduled, segments, today);
   const ppm = paychecksPerMonth(sources);
   const perPaycheck = (monthly: number) =>
     ppm > 0 ? ` (≈ ${formatCurrency(Math.round(monthly / ppm))}/paycheck)` : "";

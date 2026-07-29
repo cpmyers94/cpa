@@ -19,6 +19,7 @@ import { toScheduledExtras } from "@/lib/debts/assignments";
 import type {
   Bill,
   Debt,
+  DebtSegment,
   DebtPayment,
   Expense,
   IncomeSource,
@@ -35,8 +36,18 @@ export default function PlanPage() {
   const [extraTouched, setExtraTouched] = useState(false);
 
   const load = useCallback(async () => {
-    const [sources, deductions, bills, expenses, goals, debts, payments, settings, extras] =
-      await Promise.all([
+    const [
+      sources,
+      deductions,
+      bills,
+      expenses,
+      goals,
+      debts,
+      payments,
+      settings,
+      extras,
+      segments,
+    ] = await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
         supabase.from("bills").select("*").eq("active", true),
@@ -46,6 +57,7 @@ export default function PlanPage() {
         supabase.from("debt_payments").select("*"),
         supabase.from("plan_settings").select("*").limit(1),
         supabase.from("snowball_payments").select("*"),
+        supabase.from("debt_segments").select("*"),
       ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
@@ -57,6 +69,7 @@ export default function PlanPage() {
       payments: (payments.data ?? []) as DebtPayment[],
       settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
       extras: (extras.data ?? []) as SnowballPayment[],
+      segments: (segments.data ?? []) as DebtSegment[],
     };
   }, [supabase]);
 
@@ -81,7 +94,8 @@ export default function PlanPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, expenses, goals, debts, payments, extras } = data;
+  const { sources, deductions, bills, expenses, goals, debts, payments, extras, segments } =
+    data;
   const activeDebts = debts.filter(
     (d) => d.balance > 0 || (d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
   );
@@ -100,7 +114,7 @@ export default function PlanPage() {
     );
   }
 
-  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, payments);
+  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, payments, segments);
   const recommendation = recommendSnowball(evaluation);
   const defaultExtra = recommendation.recommended;
   const strategy: Strategy = strategyLocal ?? data.settings?.strategy ?? "snowball";
@@ -116,10 +130,18 @@ export default function PlanPage() {
   // assuming the budget flows wherever the strategy would have sent it.
   const scheduled = toScheduledExtras(extras, today);
 
-  const plan = simulatePayoff(activeDebts, extra, strategy, true, scheduled);
-  const minimumsOnly = simulatePayoff(activeDebts, 0, "avalanche", false);
+  const plan = simulatePayoff(activeDebts, extra, strategy, true, scheduled, segments, today);
+  const minimumsOnly = simulatePayoff(activeDebts, 0, "avalanche", false, [], segments, today);
   const otherStrategy: Strategy = strategy === "avalanche" ? "snowball" : "avalanche";
-  const alternative = simulatePayoff(activeDebts, extra, otherStrategy, true, scheduled);
+  const alternative = simulatePayoff(
+    activeDebts,
+    extra,
+    otherStrategy,
+    true,
+    scheduled,
+    segments,
+    today
+  );
 
   const debtFreeDate = plan.capped ? null : addMonths(today, plan.months);
   const interestSaved = minimumsOnly.capped

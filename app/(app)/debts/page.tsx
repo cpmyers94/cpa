@@ -6,7 +6,8 @@ import { useAsyncData } from "@/components/use-async-data";
 import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
 import { debtPayoff, monthlyBnplObligation } from "@/lib/calc/debt-plan";
-import type { Debt } from "@/lib/supabase/types";
+import { marginalApr, segmentsFor } from "@/lib/debts/segments";
+import type { Debt, DebtSegment } from "@/lib/supabase/types";
 import { DebtForm } from "./debt-form";
 import { DebtCard } from "./debt-card";
 
@@ -14,24 +15,32 @@ export default function DebtsPage() {
   const { supabase, user, canEdit } = useAuth();
 
   const load = useCallback(async () => {
-    const { data } = await supabase.from("debts").select("*").order("created_at");
-    return (data ?? []) as Debt[];
+    const [debtsRes, segmentsRes] = await Promise.all([
+      supabase.from("debts").select("*").order("created_at"),
+      supabase.from("debt_segments").select("*"),
+    ]);
+    return {
+      debts: (debtsRes.data ?? []) as Debt[],
+      segments: (segmentsRes.data ?? []) as DebtSegment[],
+    };
   }, [supabase]);
 
-  const { data: debts, refresh } = useAsyncData(user ? load : null);
+  const { data, refresh } = useAsyncData(user ? load : null);
 
-  if (!debts) {
+  if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
+  const { debts, segments } = data;
 
-  const totalBalance = sum(debts.map(debtPayoff));
+  const totalBalance = sum(debts.map((d) => debtPayoff(d, segments)));
   const totalMinimum =
     sum(debts.map((d) => d.minimum_payment)) + monthlyBnplObligation(debts);
   // BNPL plans run on fixed schedules, so they don't participate in
-  // avalanche ordering.
+  // avalanche ordering. A split card ranks by its costliest bucket, since
+  // that's where an extra dollar lands.
   const avalancheOrder = debts
     .filter((d) => d.type !== "bnpl")
-    .sort((a, b) => b.interest_rate - a.interest_rate);
+    .sort((a, b) => marginalApr(b, segments) - marginalApr(a, segments));
 
   return (
     <div className="flex flex-col gap-6">
@@ -62,7 +71,13 @@ export default function DebtsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         {debts.map((debt) => (
-          <DebtCard key={debt.id} debt={debt} editable={canEdit(debt.user_id)} onChanged={refresh} />
+          <DebtCard
+            key={debt.id}
+            debt={debt}
+            segments={segmentsFor(debt.id, segments)}
+            editable={canEdit(debt.user_id)}
+            onChanged={refresh}
+          />
         ))}
         {debts.length === 0 && <p className="text-sm text-neutral-500">No debts tracked yet.</p>}
       </div>
