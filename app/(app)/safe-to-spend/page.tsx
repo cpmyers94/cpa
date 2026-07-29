@@ -131,8 +131,11 @@ export default function SafeToSpendPage() {
   );
 
   // Where the next extra payment should come from: the paycheck with the most
-  // room, so nothing already owed on a tighter paycheck gets squeezed.
-  const suggestions = suggestSnowballPayments(plan, targets, monthlySnowball);
+  // room, so nothing already owed on a tighter paycheck gets squeezed. Existing
+  // assignments are passed in so a debt already covered isn't offered again.
+  const suggestions = suggestSnowballPayments(plan, targets, monthlySnowball, {
+    assigned: payments.map((p) => ({ debtId: p.debt_id, amount: p.amount })),
+  });
   const suggestionFor = (sourceId: string, date: string) =>
     suggestions.find((s) => s.incomeSourceId === sourceId && s.date === date);
 

@@ -57,11 +57,20 @@ export function suggestSnowballPayments(
   entries: PaycheckPlanEntry[],
   targets: SnowballTarget[],
   monthlyTarget: number,
-  cushion = 100,
-  maxSuggestions = 3,
-  /** Don't suggest before this calendar day. Defaults to today. */
-  notBefore?: string
+  options: {
+    cushion?: number;
+    maxSuggestions?: number;
+    /** Don't suggest before this calendar day. Defaults to today. */
+    notBefore?: string;
+    /**
+     * Payments already assigned. An assignment is a plan, not a payment, so the
+     * debt's balance hasn't moved yet — without this a debt that's already
+     * fully covered gets suggested all over again.
+     */
+    assigned?: { debtId: string; amount: number }[];
+  } = {}
 ): SnowballSuggestion[] {
+  const { cushion = 100, maxSuggestions = 3, notBefore, assigned = [] } = options;
   if (monthlyTarget <= 0 || targets.length === 0) return [];
 
   // A paycheck already in hand is largely spent — suggesting an extra payment
@@ -73,8 +82,16 @@ export function suggestSnowballPayments(
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
       now.getDate()
     ).padStart(2, "0")}`;
-  // Remaining payoff per debt, drawn down as suggestions consume it.
-  const remaining = targets.map((t) => ({ ...t }));
+  // Remaining payoff per debt, less anything already earmarked for it, then
+  // drawn down as further suggestions consume it.
+  const earmarked = new Map<string, number>();
+  for (const a of assigned) {
+    earmarked.set(a.debtId, (earmarked.get(a.debtId) ?? 0) + a.amount);
+  }
+  const remaining = targets.map((t) => ({
+    ...t,
+    balance: round2(Math.max(t.balance - (earmarked.get(t.id) ?? 0), 0)),
+  }));
   let targetIndex = 0;
 
   // Group every paycheck by month — a payment already assigned to a past
@@ -91,16 +108,17 @@ export function suggestSnowballPayments(
     if (suggestions.length >= maxSuggestions) break;
     const monthEntries = byMonth.get(month) ?? [];
 
-    // Already committed extra on this month's paychecks counts against the budget.
-    const committed = sum(monthEntries.map((e) => e.snowballTotal));
-    const budget = round2(monthlyTarget - committed);
-    if (budget <= 0) continue;
+    // One extra payment per month, on one paycheck. If any paycheck this month
+    // already carries one, the month is settled — don't go hunting for another
+    // paycheck to spend the rest of the budget on.
+    if (sum(monthEntries.map((e) => e.snowballTotal)) > 0) continue;
 
-    // Real slack, not already carrying a payment, and not already received.
+    // Real slack, and not a paycheck already received.
     const candidates = monthEntries.filter(
-      (e) => e.snowballTotal === 0 && e.freeToSpend > cushion && e.date >= floorDate
+      (e) => e.freeToSpend > cushion && e.date >= floorDate
     );
     if (candidates.length === 0) continue;
+    const budget = monthlyTarget;
 
     // The most slack wins; ties go to the earlier paycheck so debt is hit sooner.
     const best = candidates.reduce((a, b) =>
