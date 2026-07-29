@@ -7,6 +7,7 @@ import type {
   PaycheckDeduction,
   SavingsGoal,
 } from "../supabase/types";
+import { bnplPayoff } from "./bnpl";
 import { sum } from "./money";
 import { monthlyExpenses } from "./obligations";
 
@@ -113,13 +114,22 @@ export function bnplScheduledTotal(debt: Debt): number {
 }
 
 /**
- * What you'd owe to clear a debt today. For BNPL that's the settlement amount
- * when known (the lender's early-payoff, which waives unearned interest);
- * otherwise the sum of remaining installments. For everything else, the balance.
+ * What you'd owe to clear a debt today. For BNPL, in order of preference: the
+ * lender's own payoff figure, then the payoff computed from the plan's APR
+ * (present value of the remaining installments), then — with no rate to go on —
+ * the scheduled total. For everything else, the balance.
  */
 export function debtPayoff(debt: Debt): number {
-  if (debt.type === "bnpl") return debt.settlement_amount ?? bnplScheduledTotal(debt);
-  return debt.balance;
+  if (debt.type !== "bnpl") return debt.balance;
+  if (debt.settlement_amount != null) return debt.settlement_amount;
+  if (debt.interest_rate > 0) {
+    return bnplPayoff(
+      debt.installment_amount ?? 0,
+      debt.payments_remaining ?? 0,
+      debt.interest_rate
+    );
+  }
+  return bnplScheduledTotal(debt);
 }
 
 /** Current monthly BNPL obligation across all active plans. */
@@ -303,8 +313,10 @@ export function orderedSnowballTargets(
     .map((d) => ({
       id: d.id,
       name: d.name,
+      // BNPL carries a real rate too — often above a credit card's — so it
+      // takes part in avalanche ordering on the same footing.
       balance: debtPayoff(d),
-      rate: d.type === "bnpl" ? 0 : d.interest_rate,
+      rate: d.interest_rate,
     }))
     .filter((c) => c.balance > 0)
     .sort((a, b) =>
@@ -349,33 +361,24 @@ export function simulatePayoff(
         balance: d.balance,
         rate: d.interest_rate / 100 / 12,
         min: d.minimum_payment,
-        // Revolving: the whole minimum reduces the balance (after interest).
-        principalCap: Number.POSITIVE_INFINITY,
         paidOffMonth: 0,
       })),
     ...debts
       .filter((d) => d.type === "bnpl" && (d.payments_remaining ?? 0) > 0)
-      .map((d) => {
-        const ppm = bnplPaymentsPerMonth(d);
-        const monthsLeft = Math.max((d.payments_remaining ?? 0) / ppm, 1);
-        // Balance the snowball must clear = the early-payoff (settlement).
-        // Monthly cash rides the real scheduled total across the remaining
-        // months (so a stub final payment doesn't inflate the cost); each
-        // installment pays down the payoff at the amortized rate, and the gap
-        // between cash and principal is the interest you skip by settling early.
-        const payoff = debtPayoff(d);
-        const monthlyCash = bnplScheduledTotal(d) / monthsLeft;
-        return {
-          id: d.id,
-          name: d.name,
-          type: "bnpl" as const,
-          balance: payoff,
-          rate: 0,
-          min: monthlyCash,
-          principalCap: payoff / monthsLeft,
-          paidOffMonth: 0,
-        };
-      }),
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        type: "bnpl" as const,
+        // An installment loan is just an amortizing debt: the balance owed today
+        // is the payoff, interest accrues on it at the plan's rate, and the
+        // installment pays it down. Ride the schedule and it clears in exactly
+        // the payments remaining; settle early and the unaccrued interest is
+        // never charged — both fall out of the same arithmetic.
+        balance: debtPayoff(d),
+        rate: d.interest_rate / 100 / 12,
+        min: bnplPaymentsPerMonth(d) * (d.installment_amount ?? 0),
+        paidOffMonth: 0,
+      })),
   ];
 
   const budget = sum(items.map((d) => Math.min(d.min, d.balance))) + extraPerMonth;
@@ -407,14 +410,9 @@ export function simulatePayoff(
         totalInterest += interest;
         d.balance += interest;
       }
-      // Balance can only drop by the scheduled principal (all of it for
-      // revolving; the amortized share for BNPL). The cash paid is the full
-      // installment; the gap is BNPL interest you avoid by settling early.
-      const principal = Math.min(d.min, d.principalCap, d.balance);
-      const cash = d.principalCap === principal ? d.min : principal;
-      d.balance -= principal;
-      totalInterest += Math.max(cash - principal, 0);
-      paidThisMonth += cash;
+      const payment = Math.min(d.min, d.balance);
+      d.balance -= payment;
+      paidThisMonth += payment;
       if (d.balance <= 0.005) {
         d.balance = 0;
         d.paidOffMonth = month;

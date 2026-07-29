@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth";
 import { Card, inputClass, ghostButtonClass } from "@/components/card";
 import { formatCurrency, formatDate, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
 import { bnplScheduledTotal, debtPayoff } from "@/lib/calc/debt-plan";
+import { impliedBnplApr } from "@/lib/calc/bnpl";
 import type { Debt } from "@/lib/supabase/types";
 import { addPayment, deleteDebt, payBnplInstallment } from "./mutations";
 import { DebtForm } from "./debt-form";
@@ -177,6 +178,18 @@ export function DebtCard({
   const isShared = members.length > 1;
   const isBnpl = debt.type === "bnpl";
   const [editing, setEditing] = useState(false);
+  // When a lender payoff was entered but no APR, show the rate it works out to.
+  const impliedApr = useMemo(
+    () =>
+      isBnpl && debt.settlement_amount != null
+        ? impliedBnplApr(
+            debt.installment_amount ?? 0,
+            debt.payments_remaining ?? 0,
+            debt.settlement_amount
+          )
+        : null,
+    [isBnpl, debt.settlement_amount, debt.installment_amount, debt.payments_remaining]
+  );
 
   if (editing) {
     return (
@@ -201,7 +214,12 @@ export function DebtCard({
           <p className="text-xs text-neutral-500">
             {TYPE_LABEL[debt.type]}
             {!isBnpl && ` · ${debt.interest_rate}% APR`}
-            {isBnpl && " · interest built into payments"}
+            {isBnpl && debt.interest_rate > 0 && ` · ${debt.interest_rate}% APR`}
+            {isBnpl && debt.interest_rate <= 0 && impliedApr != null && impliedApr > 0 && (
+              <> · ~{impliedApr}% APR implied</>
+            )}
+            {isBnpl && debt.interest_rate <= 0 && (impliedApr == null || impliedApr === 0) &&
+              " · interest built into payments"}
           </p>
         </div>
         <div className="text-right">

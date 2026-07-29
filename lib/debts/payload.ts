@@ -58,7 +58,9 @@ export function buildDebtPayload(input: DebtInput): DebtColumns {
         input.scheduled_balance != null
           ? Number(input.scheduled_balance)
           : round2(installment * remaining),
-      interest_rate: 0,
+      // BNPL plans are installment loans and carry a real APR — often higher
+      // than a credit card's. 0 means "rate unknown", not "interest free".
+      interest_rate: Number(input.interest_rate ?? 0),
       minimum_payment: 0,
       due_day: null,
       installment_amount: installment,
