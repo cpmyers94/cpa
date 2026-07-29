@@ -19,6 +19,8 @@ type AuthContextValue = {
   household: Household | null;
   members: HouseholdMember[];
   loading: boolean;
+  /** Set when the backend couldn't be reached — distinct from "signed out". */
+  error: Error | null;
   /** True if the signed-in user may edit a row authored by `authorId`. */
   canEdit: (authorId: string) => boolean;
   /** Display name for a member's user id (falls back to "someone"). */
@@ -34,6 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [household, setHousehold] = useState<Household | null>(null);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   const loadHousehold = useCallback(
     async (currentUser: User) => {
@@ -84,14 +87,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(nextUser);
       try {
         await loadHousehold(nextUser);
+        if (active) setError(null);
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause : new Error(String(cause)));
       } finally {
         if (active) setLoading(false);
       }
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (active) init(session?.user ?? null);
-    });
+    // A rejected session lookup (unreachable backend) must still clear loading,
+    // or the app spins forever — and it must not be mistaken for "signed out".
+    supabase.auth.getSession().then(
+      ({ data: { session } }) => {
+        if (active) init(session?.user ?? null);
+      },
+      (cause: unknown) => {
+        if (!active) return;
+        setError(cause instanceof Error ? cause : new Error(String(cause)));
+        setLoading(false);
+      }
+    );
 
     const {
       data: { subscription },
@@ -131,11 +146,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       household,
       members,
       loading,
+      error,
       canEdit,
       nameFor,
       refreshHousehold,
     }),
-    [supabase, user, household, members, loading, canEdit, nameFor, refreshHousehold]
+    [supabase, user, household, members, loading, error, canEdit, nameFor, refreshHousehold]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -148,12 +164,14 @@ export function useAuth(): AuthContextValue {
 }
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, error } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) router.replace("/login");
-  }, [loading, user, router]);
+    // Only redirect when we know they're signed out — an unreachable backend
+    // isn't a sign-out, and bouncing to /login would hide the real problem.
+    if (!loading && !user && !error) router.replace("/login");
+  }, [loading, user, error, router]);
 
   if (loading) {
     return (
@@ -162,6 +180,25 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
+
+  if (error && !user) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
+        <p className="text-sm font-medium">Can&apos;t reach your data right now.</p>
+        <p className="max-w-sm text-xs text-neutral-500">
+          The server didn&apos;t respond. This is usually temporary — if the app has been idle
+          for a while the database may be waking back up. Give it a moment and try again.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white dark:bg-white dark:text-neutral-900"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   if (!user) return null;
   return <>{children}</>;
 }
