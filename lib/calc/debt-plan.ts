@@ -16,6 +16,7 @@ import {
   marginalApr,
   type DebtPart,
 } from "../debts/segments";
+import { minimumFromParts, minimumPayment } from "../debts/minimum";
 import { bnplPayoff } from "./bnpl";
 import { sum } from "./money";
 import { monthlyExpenses } from "./obligations";
@@ -188,7 +189,7 @@ export function evaluate(
   const expenseTotal = monthlyExpenses(expenses);
   const goalTotal = monthlySavingsContribution(sources, goals);
   const revolving = debts.filter((d) => d.type !== "bnpl" && cardBalance(d, segments) > 0);
-  const minimums = sum(revolving.map((d) => d.minimum_payment));
+  const minimums = sum(revolving.map((d) => minimumPayment(d, segments)));
   const bnpl = monthlyBnplObligation(debts);
   const committed = minimums + bnpl;
   const surplus = income - billTotal - expenseTotal - goalTotal - committed;
@@ -381,8 +382,23 @@ interface SimItem {
   type: "bnpl" | "revolving";
   /** Balance buckets, each at its own rate. Cards without segments have one. */
   parts: DebtPart[];
-  min: number;
+  /**
+   * How the monthly minimum is arrived at. A calculated minimum has to be
+   * recomputed each month: it shrinks as the balance does, and it jumps when a
+   * promo rate lapses and the whole balance starts accruing.
+   */
+  rule: Pick<
+    Debt,
+    "minimum_rule" | "minimum_percent" | "minimum_floor" | "minimum_payment"
+  >;
   paidOffMonth: number;
+}
+
+/** What this debt asks for in the month containing `on`, at its current balance. */
+function minOf(d: SimItem, on: Date): number {
+  return d.type === "bnpl"
+    ? d.rule.minimum_payment
+    : minimumFromParts(d.rule, d.parts, on);
 }
 
 const balanceOf = (d: SimItem) => sum(d.parts.map((p) => p.balance));
@@ -404,7 +420,12 @@ export function simulatePayoff(
         name: d.name,
         type: "revolving" as const,
         parts: debtParts(d, segments).map((p) => ({ ...p })),
-        min: d.minimum_payment,
+        rule: {
+          minimum_rule: d.minimum_rule,
+          minimum_percent: d.minimum_percent,
+          minimum_floor: d.minimum_floor,
+          minimum_payment: d.minimum_payment,
+        },
         paidOffMonth: 0,
       })),
     ...debts
@@ -428,12 +449,18 @@ export function simulatePayoff(
             postPromoApr: null,
           },
         ],
-        min: bnplPaymentsPerMonth(d) * (d.installment_amount ?? 0),
+        rule: {
+          minimum_rule: "manual" as const,
+          minimum_percent: null,
+          minimum_floor: null,
+          minimum_payment: bnplPaymentsPerMonth(d) * (d.installment_amount ?? 0),
+        },
         paidOffMonth: 0,
       })),
   ];
 
-  const startMinimums = sum(items.map((d) => Math.min(d.min, balanceOf(d))));
+  const startMin = new Map(items.map((d) => [d.id, Math.min(minOf(d, today), balanceOf(d))]));
+  const startMinimums = sum([...startMin.values()]);
   const budget = startMinimums + extraPerMonth;
 
   let month = 0;
@@ -482,7 +509,7 @@ export function simulatePayoff(
           part.balance += interest;
         }
       }
-      const payment = Math.min(d.min, balanceOf(d));
+      const payment = Math.min(minOf(d, on), balanceOf(d));
       applyToParts(d.parts, payment, "cheapest_first", on);
       paidThisMonth += payment;
       settle(d, month);
@@ -530,13 +557,16 @@ export function simulatePayoff(
     .slice()
     .sort((a, b) => (a.paidOffMonth || month) - (b.paidOffMonth || month))
     .map((d) => {
-      snowball += d.min;
+      // What clearing this debt frees is the payment it was taking when the
+      // plan started, not its final (smaller) one.
+      const freed = startMin.get(d.id) ?? 0;
+      snowball += freed;
       return {
         id: d.id,
         name: d.name,
         month: d.paidOffMonth || month,
         type: d.type,
-        freed: Math.round(d.min * 100) / 100,
+        freed: Math.round(freed * 100) / 100,
         snowballAfter: Math.round(snowball * 100) / 100,
       };
     });

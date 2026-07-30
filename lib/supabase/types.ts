@@ -13,6 +13,8 @@ export type DebtType =
 
 export type InstallmentFrequency = "weekly" | "biweekly" | "monthly";
 export type SegmentKind = "purchase" | "balance_transfer" | "cash_advance";
+/** How a card's monthly minimum is arrived at. */
+export type MinimumRule = "manual" | "percent_plus_interest" | "percent_of_balance";
 /** How a card carries its balance — the shape the user picks on the debt form. */
 export type CardStructure = "simple" | "transfer" | "transfer_and_purchases";
 
@@ -111,7 +113,13 @@ export interface Debt extends Owned {
   interest_rate: number;
   /** True when the user set the APR themselves — never overwrite a manual rate. */
   apr_manual: boolean;
+  /** Only meaningful when `minimum_rule` is "manual"; otherwise it's derived. */
   minimum_payment: number;
+  minimum_rule: MinimumRule;
+  /** Percent of balance the issuer asks for. Null falls back to the default. */
+  minimum_percent: number | null;
+  /** The smallest the issuer will bill. Null falls back to the default. */
+  minimum_floor: number | null;
   due_day: number | null;
   // BNPL-only fields: fixed installments on a fixed schedule.
   installment_amount: number | null;

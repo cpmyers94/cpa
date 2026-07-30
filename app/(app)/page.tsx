@@ -108,9 +108,17 @@ export default function DashboardPage() {
   const assignedSnowball = toAssignedPayments(payments, debts);
   // Debts an assigned payment pays off stop generating obligations afterwards.
   const planObligations = withoutClearedDebts(
-    getObligations(bills, debts, expenses, addDays(today, -7), addDays(today, WINDOW_DAYS + 30)),
+    getObligations(
+      bills,
+      debts,
+      expenses,
+      addDays(today, -7),
+      addDays(today, WINDOW_DAYS + 30),
+      segments
+    ),
     debts,
-    payments
+    payments,
+    segments
   );
   const upcomingPaychecks = buildPaycheckPlan(
     sources,
@@ -126,9 +134,10 @@ export default function DashboardPage() {
   );
 
   const upcomingObligations = withoutClearedDebts(
-    getObligations(bills, debts, expenses, today, rangeEnd),
+    getObligations(bills, debts, expenses, today, rangeEnd, segments),
     debts,
-    payments
+    payments,
+    segments
   );
 
   const totalIncoming = sum(upcomingPaychecks.map((p) => p.net));

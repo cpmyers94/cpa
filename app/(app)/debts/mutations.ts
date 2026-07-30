@@ -11,6 +11,7 @@ import type {
   Debt,
   DebtType,
   InstallmentFrequency,
+  MinimumRule,
 } from "@/lib/supabase/types";
 
 const num = (v: FormDataEntryValue | null) => (v ? Number(v) : null);
@@ -60,6 +61,10 @@ function debtPayload(formData: FormData) {
     // rate from then on. Clearing the field hands it back to derivation.
     apr_manual: Boolean(formData.get("interest_rate")),
     minimum_payment: num(formData.get("minimum_payment")),
+    minimum_rule: (String(formData.get("minimum_rule") || "manual") ||
+      "manual") as MinimumRule,
+    minimum_percent: num(formData.get("minimum_percent")),
+    minimum_floor: num(formData.get("minimum_floor")),
     due_day: num(formData.get("due_day")),
     installment_amount: num(formData.get("installment_amount")),
     payments_remaining: num(formData.get("payments_remaining")),

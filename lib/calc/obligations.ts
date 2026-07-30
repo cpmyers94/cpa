@@ -1,5 +1,6 @@
 import { addDays, addMonths, getDaysInMonth, isWithinInterval, setDate, startOfMonth } from "date-fns";
-import type { Bill, Debt, Expense, ObligationType } from "../supabase/types";
+import type { Bill, Debt, DebtSegment, Expense, ObligationType } from "../supabase/types";
+import { minimumPayment } from "../debts/minimum";
 import { getBillOccurrences } from "./bills";
 
 /**
@@ -34,7 +35,12 @@ function monthlyDueOccurrences(dueDay: number, rangeStart: Date, rangeEnd: Date)
 }
 
 /** Payment occurrences for a debt: monthly minimum for revolving, the fixed schedule for BNPL. */
-export function getDebtOccurrences(debt: Debt, rangeStart: Date, rangeEnd: Date): Date[] {
+export function getDebtOccurrences(
+  debt: Debt,
+  rangeStart: Date,
+  rangeEnd: Date,
+  segments: DebtSegment[] = []
+): Date[] {
   if (debt.type === "bnpl") {
     if (!debt.next_payment_date || (debt.payments_remaining ?? 0) <= 0) return [];
     const step =
@@ -55,7 +61,7 @@ export function getDebtOccurrences(debt: Debt, rangeStart: Date, rangeEnd: Date)
 
   // Revolving debt: a monthly minimum payment. Fall back to day 1 if no due day
   // has been set yet.
-  if (debt.balance <= 0 || debt.minimum_payment <= 0) return [];
+  if (debt.balance <= 0 || minimumPayment(debt, segments, rangeStart) <= 0) return [];
   return monthlyDueOccurrences(debt.due_day ?? 1, rangeStart, rangeEnd);
 }
 
@@ -71,7 +77,8 @@ export function getObligations(
   debts: Debt[],
   expenses: Expense[],
   rangeStart: Date,
-  rangeEnd: Date
+  rangeEnd: Date,
+  segments: DebtSegment[] = []
 ): Obligation[] {
   const obligations: Obligation[] = [];
 
@@ -90,8 +97,13 @@ export function getObligations(
   }
 
   for (const debt of debts) {
-    const amount = debt.type === "bnpl" ? debt.installment_amount ?? 0 : debt.minimum_payment;
-    for (const date of getDebtOccurrences(debt, rangeStart, rangeEnd)) {
+    for (const date of getDebtOccurrences(debt, rangeStart, rangeEnd, segments)) {
+      // A calculated minimum is billed against the balance in that month, so
+      // each occurrence is priced on its own date rather than on today's.
+      const amount =
+        debt.type === "bnpl"
+          ? debt.installment_amount ?? 0
+          : minimumPayment(debt, segments, date);
       obligations.push({
         type: "debt",
         id: debt.id,

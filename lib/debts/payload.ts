@@ -1,4 +1,5 @@
-import type { DebtType, InstallmentFrequency } from "../supabase/types";
+import { DEFAULT_MINIMUM_FLOOR, DEFAULT_MINIMUM_PERCENT } from "./minimum";
+import type { DebtType, InstallmentFrequency, MinimumRule } from "../supabase/types";
 
 /**
  * Plain-object debt input, shared by every surface that writes a debt: the
@@ -17,6 +18,10 @@ export interface DebtInput {
    */
   apr_manual?: boolean;
   minimum_payment?: number | null;
+  /** How the minimum is arrived at. Defaults to the typed-in amount. */
+  minimum_rule?: MinimumRule | null;
+  minimum_percent?: number | null;
+  minimum_floor?: number | null;
   due_day?: number | null;
   // BNPL
   installment_amount?: number | null;
@@ -40,6 +45,9 @@ export interface DebtColumns {
   interest_rate: number;
   apr_manual: boolean;
   minimum_payment: number;
+  minimum_rule: MinimumRule;
+  minimum_percent: number | null;
+  minimum_floor: number | null;
   due_day: number | null;
   installment_amount: number | null;
   payments_remaining: number | null;
@@ -69,6 +77,10 @@ export function buildDebtPayload(input: DebtInput): DebtColumns {
       interest_rate: Number(input.interest_rate ?? 0),
       apr_manual: input.apr_manual ?? false,
       minimum_payment: 0,
+      // BNPL runs on a fixed installment, not a balance-driven minimum.
+      minimum_rule: "manual" as const,
+      minimum_percent: null,
+      minimum_floor: null,
       due_day: null,
       installment_amount: installment,
       payments_remaining: remaining,
@@ -80,6 +92,7 @@ export function buildDebtPayload(input: DebtInput): DebtColumns {
     };
   }
 
+  const rule: MinimumRule = input.minimum_rule ?? "manual";
   return {
     name: input.name,
     type: input.type,
@@ -88,6 +101,13 @@ export function buildDebtPayload(input: DebtInput): DebtColumns {
     // A rate on a card or loan is always the user's own figure.
     apr_manual: input.apr_manual ?? true,
     minimum_payment: Number(input.minimum_payment ?? 0),
+    minimum_rule: rule,
+    // Only meaningful for a calculated rule; kept null otherwise so a switch
+    // back to manual doesn't leave stale percentages behind.
+    minimum_percent:
+      rule === "manual" ? null : Number(input.minimum_percent ?? DEFAULT_MINIMUM_PERCENT),
+    minimum_floor:
+      rule === "manual" ? null : Number(input.minimum_floor ?? DEFAULT_MINIMUM_FLOOR),
     due_day: input.due_day == null ? null : Number(input.due_day),
     installment_amount: null,
     payments_remaining: null,

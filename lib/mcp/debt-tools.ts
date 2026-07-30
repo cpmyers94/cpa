@@ -11,12 +11,14 @@ import {
 } from "../calc/debt-plan";
 import { toScheduledExtras } from "../debts/assignments";
 import { promoDeadlines, segmentsFor, SEGMENT_LABEL } from "../debts/segments";
+import { minimumAfterPromos, minimumPayment } from "../debts/minimum";
 import { buildDebtPayload, type DebtInput } from "../debts/payload";
 import type {
   Debt,
   DebtSegment,
   DebtType,
   IncomeSource,
+  MinimumRule,
   InstallmentFrequency,
   SnowballPayment,
 } from "../supabase/types";
@@ -115,7 +117,13 @@ export function describeDebt(
     // interest_rate_apr is only their balance-weighted average.
     interest_rate_apr: debt.interest_rate,
     apr_source: debt.apr_manual ? "user" : "derived",
-    minimum_payment: debt.minimum_payment,
+    minimum_payment: round2(minimumPayment(debt, segments)),
+    minimum_rule: debt.minimum_rule,
+    ...(minimumAfterPromos(debt, own)
+      ? {
+          minimum_after_promo: minimumAfterPromos(debt, own),
+        }
+      : {}),
     due_day: debt.due_day,
     ...(own.length > 0
       ? {
@@ -207,6 +215,20 @@ const debtFields = {
       "APR percent, e.g. 27.5. BNPL plans have a real APR too (often 25-35%) — setting it marks the rate as user-owned so it won't be overwritten by a derived one.",
   },
   minimum_payment: { type: "number", description: "Monthly minimum (non-BNPL)." },
+  minimum_rule: {
+    type: "string",
+    enum: ["manual", "percent_plus_interest", "percent_of_balance"],
+    description:
+      "How the minimum is worked out. 'manual' uses minimum_payment; the others compute it from the balance each month.",
+  },
+  minimum_percent: {
+    type: "number",
+    description: "Percent of balance for a calculated minimum (default 1).",
+  },
+  minimum_floor: {
+    type: "number",
+    description: "Smallest amount the issuer bills for a calculated minimum (default 25).",
+  },
   due_day: { type: "integer", description: "Day of month the payment is due, 1-31." },
   installment_amount: { type: "number", description: "BNPL: amount per installment." },
   payments_remaining: { type: "integer", description: "BNPL: installments left." },
@@ -346,7 +368,7 @@ async function listDebts(ctx: DebtToolContext) {
   const active = debts.filter((d) => debtPayoff(d, segments) > 0);
   const monthlyMinimums = active
     .filter((d) => d.type !== "bnpl")
-    .reduce((sum, d) => sum + d.minimum_payment, 0);
+    .reduce((sum, d) => sum + minimumPayment(d, segments), 0);
   return {
     debts: debts.map((d) => describeDebt(d, segments)),
     totals: {
@@ -426,6 +448,9 @@ async function addDebt(ctx: DebtToolContext, args: Args) {
     interest_rate: numOf(args, "interest_rate"),
     apr_manual: args.interest_rate != null,
     minimum_payment: numOf(args, "minimum_payment"),
+    minimum_rule: str(args, "minimum_rule") as MinimumRule | undefined,
+    minimum_percent: numOf(args, "minimum_percent"),
+    minimum_floor: numOf(args, "minimum_floor"),
     due_day: numOf(args, "due_day"),
     installment_amount: numOf(args, "installment_amount"),
     payments_remaining: numOf(args, "payments_remaining"),
@@ -463,6 +488,9 @@ async function updateDebt(ctx: DebtToolContext, args: Args) {
     interest_rate: numOf(args, "interest_rate") ?? base.interest_rate,
     apr_manual: args.interest_rate != null ? true : base.apr_manual,
     minimum_payment: numOf(args, "minimum_payment") ?? base.minimum_payment,
+    minimum_rule: (str(args, "minimum_rule") as MinimumRule | undefined) ?? base.minimum_rule,
+    minimum_percent: numOf(args, "minimum_percent") ?? base.minimum_percent,
+    minimum_floor: numOf(args, "minimum_floor") ?? base.minimum_floor,
     due_day: numOf(args, "due_day") ?? base.due_day,
     installment_amount: numOf(args, "installment_amount") ?? base.installment_amount,
     payments_remaining: numOf(args, "payments_remaining") ?? base.payments_remaining,

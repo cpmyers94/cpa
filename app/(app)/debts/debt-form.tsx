@@ -4,7 +4,17 @@ import { useState } from "react";
 import { useAuth } from "@/components/auth";
 import { inputClass, buttonClass, ghostButtonClass } from "@/components/card";
 import { STRUCTURES, structureOf } from "@/lib/debts/segment-input";
-import type { CardStructure, Debt, DebtSegment } from "@/lib/supabase/types";
+import {
+  DEFAULT_MINIMUM_FLOOR,
+  DEFAULT_MINIMUM_PERCENT,
+  MINIMUM_RULES,
+} from "@/lib/debts/minimum";
+import type {
+  CardStructure,
+  Debt,
+  DebtSegment,
+  MinimumRule,
+} from "@/lib/supabase/types";
 import { addDebt, updateDebt } from "./mutations";
 
 const TYPES: { value: string; label: string }[] = [
@@ -32,6 +42,7 @@ export function DebtForm({
   const { supabase, user } = useAuth();
   const [type, setType] = useState<string>(editing?.type ?? "credit_card");
   const [structure, setStructure] = useState<CardStructure>(() => structureOf(segments));
+  const [minRule, setMinRule] = useState<MinimumRule>(editing?.minimum_rule ?? "manual");
 
   const transfer = segments.find((s) => s.kind === "balance_transfer");
   const purchase = segments.find((s) => s.kind === "purchase");
@@ -49,6 +60,7 @@ export function DebtForm({
       form.reset();
       setType("credit_card");
       setStructure("simple");
+      setMinRule("manual");
     }
     onChanged();
     onDone?.();
@@ -280,17 +292,62 @@ export function DebtForm({
           )}
 
           <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
-            Min payment /mo
-            <input
-              name="minimum_payment"
-              type="number"
-              step="0.01"
-              min="0"
-              required
-              defaultValue={editing?.minimum_payment || undefined}
+            Minimum payment
+            <select
+              name="minimum_rule"
+              value={minRule}
+              onChange={(e) => setMinRule(e.target.value as MinimumRule)}
               className={inputClass}
-            />
+            >
+              {MINIMUM_RULES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
           </label>
+
+          {minRule === "manual" ? (
+            <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+              Amount /mo
+              <input
+                name="minimum_payment"
+                type="number"
+                step="0.01"
+                min="0"
+                required
+                defaultValue={editing?.minimum_payment || undefined}
+                className={inputClass}
+              />
+            </label>
+          ) : (
+            <>
+              <label className="col-span-1 flex flex-col gap-1 text-xs text-neutral-500">
+                % of balance
+                <input
+                  name="minimum_percent"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="1"
+                  defaultValue={editing?.minimum_percent ?? DEFAULT_MINIMUM_PERCENT}
+                  className={inputClass}
+                />
+              </label>
+              <label className="col-span-1 flex flex-col gap-1 text-xs text-neutral-500">
+                Floor
+                <input
+                  name="minimum_floor"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="25"
+                  defaultValue={editing?.minimum_floor ?? DEFAULT_MINIMUM_FLOOR}
+                  className={inputClass}
+                />
+              </label>
+            </>
+          )}
           <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
             Payment due day
             <input

@@ -7,6 +7,7 @@ import { Card } from "@/components/card";
 import { formatCurrency, sum } from "@/lib/calc/money";
 import { debtPayoff, monthlyBnplObligation } from "@/lib/calc/debt-plan";
 import { marginalApr, segmentsFor } from "@/lib/debts/segments";
+import { minimumPayment } from "@/lib/debts/minimum";
 import type { Debt, DebtSegment } from "@/lib/supabase/types";
 import { DebtForm } from "./debt-form";
 import { DebtCard } from "./debt-card";
@@ -34,7 +35,7 @@ export default function DebtsPage() {
 
   const totalBalance = sum(debts.map((d) => debtPayoff(d, segments)));
   const totalMinimum =
-    sum(debts.map((d) => d.minimum_payment)) + monthlyBnplObligation(debts);
+    sum(debts.map((d) => minimumPayment(d, segments))) + monthlyBnplObligation(debts);
   // BNPL plans run on fixed schedules, so they don't participate in
   // avalanche ordering. A split card ranks by its costliest bucket, since
   // that's where an extra dollar lands.

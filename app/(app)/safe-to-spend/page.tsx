@@ -17,6 +17,7 @@ import {
 import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
 import { suggestSnowballPayments } from "@/lib/calc/snowball-assign";
 import { toAssignedPayments, withoutClearedDebts } from "@/lib/debts/assignments";
+import { minimumPayment } from "@/lib/debts/minimum";
 import type {
   Bill,
   Debt,
@@ -108,7 +109,8 @@ export default function SafeToSpendPage() {
     debts,
     expenses,
     addDays(today, -40),
-    addDays(today, 120)
+    addDays(today, 120),
+    segments
   );
 
   // A debt an assigned payment pays off stops costing anything after that
@@ -159,7 +161,11 @@ export default function SafeToSpendPage() {
   // Monthly money already headed to debt (minimums + BNPL). Extra surplus isn't
   // included here — this is the conservative "what's committed to debt" pace.
   const monthlyDebtOutlay =
-    sum(debts.filter((d) => d.type !== "bnpl" && d.balance > 0).map((d) => d.minimum_payment)) +
+    sum(
+      debts
+        .filter((d) => d.type !== "bnpl" && d.balance > 0)
+        .map((d) => minimumPayment(d, segments))
+    ) +
     monthlyBnplObligation(debts);
 
   return (

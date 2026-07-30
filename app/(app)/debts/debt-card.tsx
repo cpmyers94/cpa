@@ -5,9 +5,10 @@ import { addDays, addMonths, format } from "date-fns";
 import { useAuth } from "@/components/auth";
 import { Card, inputClass, ghostButtonClass } from "@/components/card";
 import { formatCurrency, formatDate, monthsToPayoff, totalInterestPaid } from "@/lib/calc/money";
-import { bnplScheduledTotal, debtPayoff } from "@/lib/calc/debt-plan";
+import { bnplScheduledTotal, debtPayoff, simulatePayoff } from "@/lib/calc/debt-plan";
 import { impliedBnplApr } from "@/lib/calc/bnpl";
 import { cardApr, SEGMENT_LABEL } from "@/lib/debts/segments";
+import { minimumAfterPromos, minimumPayment } from "@/lib/debts/minimum";
 import type { Debt, DebtSegment } from "@/lib/supabase/types";
 import { addPayment, deleteDebt, payBnplInstallment } from "./mutations";
 import { DebtForm } from "./debt-form";
@@ -101,18 +102,38 @@ function BnplBody({ debt, editable, onChanged }: { debt: Debt; editable: boolean
   );
 }
 
-function RevolvingBody({ debt, editable, onChanged }: { debt: Debt; editable: boolean; onChanged: () => void }) {
+function RevolvingBody({
+  debt,
+  segments,
+  editable,
+  onChanged,
+}: {
+  debt: Debt;
+  segments: DebtSegment[];
+  editable: boolean;
+  onChanged: () => void;
+}) {
   const { supabase, user } = useAuth();
-  const [payment, setPayment] = useState(debt.minimum_payment || 0);
+  const [payment, setPayment] = useState(() => minimumPayment(debt, segments) || 0);
 
-  const months = useMemo(
-    () => monthsToPayoff(debt.balance, debt.interest_rate, payment),
-    [debt, payment]
-  );
-  const interest = useMemo(
-    () => totalInterestPaid(debt.balance, debt.interest_rate, payment),
-    [debt, payment]
-  );
+  // A split card can't be projected off one rate — a 0% bucket reverting
+  // mid-payoff changes both the interest and the finish date — so run the real
+  // simulation for it and keep the closed-form estimate for a plain balance.
+  const projection = useMemo(() => {
+    if (segments.length === 0) {
+      return {
+        months: monthsToPayoff(debt.balance, debt.interest_rate, payment),
+        interest: totalInterestPaid(debt.balance, debt.interest_rate, payment),
+      };
+    }
+    const extra = Math.max(payment - minimumPayment(debt, segments), 0);
+    const result = simulatePayoff([debt], extra, "avalanche", true, [], segments);
+    return {
+      months: result.capped ? null : result.months,
+      interest: result.totalInterest,
+    };
+  }, [debt, segments, payment]);
+  const { months, interest } = projection;
 
   async function handlePayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -233,6 +254,12 @@ export function DebtCard({
     [isBnpl, debt.settlement_amount, debt.installment_amount, debt.payments_remaining]
   );
 
+  // A promo lapsing doesn't just raise the rate; it raises the bill, on one
+  // specific paycheck, with no notice unless it's shown here.
+  const jump = minimumAfterPromos(debt, segments);
+  const minimumJump =
+    jump && jump.amount > minimumPayment(debt, segments) + 0.01 ? jump : null;
+
   if (editing) {
     return (
       <Card title={`Edit ${debt.name}`}>
@@ -293,17 +320,32 @@ export function DebtCard({
               ? debt.settlement_amount != null
                 ? "payoff today"
                 : `${formatCurrency(debt.installment_amount ?? 0)} per payment`
-              : `min ${formatCurrency(debt.minimum_payment)}/mo`}
+              : `min ${formatCurrency(minimumPayment(debt, segments))}/mo${
+                  debt.minimum_rule === "manual" ? "" : " (calculated)"
+                }`}
           </p>
         </div>
       </div>
 
       {segments.length > 0 && <SegmentBreakdown segments={segments} />}
 
+      {minimumJump && (
+        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+          Once the promo ends {formatDate(minimumJump.risesOn, { month: "short", day: "numeric" })},
+          the minimum rises to {formatCurrency(minimumJump.amount)}/mo — plan the paycheck that
+          absorbs it.
+        </p>
+      )}
+
       {isBnpl ? (
         <BnplBody debt={debt} editable={editable} onChanged={onChanged} />
       ) : (
-        <RevolvingBody debt={debt} editable={editable} onChanged={onChanged} />
+        <RevolvingBody
+          debt={debt}
+          segments={segments}
+          editable={editable}
+          onChanged={onChanged}
+        />
       )}
 
       {editable && (

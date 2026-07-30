@@ -13,6 +13,7 @@ import { pickPaycheckForDueDate } from "@/lib/calc/allocate";
 import type {
   Bill,
   Debt,
+  DebtSegment,
   Expense,
   IncomeSource,
   ObligationAllocation,
@@ -42,14 +43,22 @@ export default function BillsPage() {
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [billsRes, debtsRes, expensesRes, sourcesRes, allocationsRes, extrasRes] =
-      await Promise.all([
+    const [
+      billsRes,
+      debtsRes,
+      expensesRes,
+      sourcesRes,
+      allocationsRes,
+      extrasRes,
+      segmentsRes,
+    ] = await Promise.all([
       supabase.from("bills").select("*").eq("active", true).order("created_at"),
       supabase.from("debts").select("*"),
       supabase.from("expenses").select("*").eq("active", true),
       supabase.from("income_sources").select("*").eq("active", true),
       supabase.from("bill_allocations").select("*"),
       supabase.from("snowball_payments").select("*"),
+      supabase.from("debt_segments").select("*"),
     ]);
     return {
       bills: (billsRes.data ?? []) as Bill[],
@@ -58,6 +67,7 @@ export default function BillsPage() {
       sources: (sourcesRes.data ?? []) as IncomeSource[],
       allocations: (allocationsRes.data ?? []) as ObligationAllocation[],
       extras: (extrasRes.data ?? []) as SnowballPayment[],
+      segments: (segmentsRes.data ?? []) as DebtSegment[],
     };
   }, [supabase]);
 
@@ -66,7 +76,7 @@ export default function BillsPage() {
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
-  const { bills, debts, expenses, sources, allocations, extras } = data;
+  const { bills, debts, expenses, sources, allocations, extras, segments } = data;
 
   const today = new Date();
   const rangeEnd = addDays(today, WINDOW_DAYS);
@@ -81,9 +91,10 @@ export default function BillsPage() {
 
   // A debt an assigned payment pays off shouldn't still be offered for assignment.
   const obligations = withoutClearedDebts(
-    getObligations(bills, debts, expenses, today, rangeEnd),
+    getObligations(bills, debts, expenses, today, rangeEnd, segments),
     debts,
-    extras
+    extras,
+    segments
   );
 
   const findAllocation = (ob: Obligation) => {

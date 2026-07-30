@@ -21,6 +21,7 @@ import { getObligations } from "@/lib/calc/obligations";
 import type {
   Bill,
   Debt,
+  DebtSegment,
   Expense,
   IncomeSource,
   ObligationType,
@@ -42,12 +43,14 @@ export default function CalendarPage() {
   const [monthStart, setMonthStart] = useState(() => startOfMonth(new Date()));
 
   const load = useCallback(async () => {
-    const [sourcesRes, billsRes, debtsRes, expensesRes, extrasRes] = await Promise.all([
+    const [sourcesRes, billsRes, debtsRes, expensesRes, extrasRes, segmentsRes] =
+      await Promise.all([
       supabase.from("income_sources").select("*").eq("active", true),
       supabase.from("bills").select("*").eq("active", true),
       supabase.from("debts").select("*"),
       supabase.from("expenses").select("*").eq("active", true),
       supabase.from("snowball_payments").select("*"),
+      supabase.from("debt_segments").select("*"),
     ]);
     return {
       sources: (sourcesRes.data ?? []) as IncomeSource[],
@@ -55,6 +58,7 @@ export default function CalendarPage() {
       debts: (debtsRes.data ?? []) as Debt[],
       expenses: (expensesRes.data ?? []) as Expense[],
       extras: (extrasRes.data ?? []) as SnowballPayment[],
+      segments: (segmentsRes.data ?? []) as DebtSegment[],
     };
   }, [supabase]);
 
@@ -63,7 +67,7 @@ export default function CalendarPage() {
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
-  const { sources, bills, debts, expenses, extras } = data;
+  const { sources, bills, debts, expenses, extras, segments } = data;
 
   const monthEnd = endOfMonth(monthStart);
   const gridStart = startOfWeek(monthStart);
@@ -86,9 +90,10 @@ export default function CalendarPage() {
     }
   }
   const obligations = withoutClearedDebts(
-    getObligations(bills, debts, expenses, gridStart, gridEnd),
+    getObligations(bills, debts, expenses, gridStart, gridEnd, segments),
     debts,
-    extras
+    extras,
+    segments
   );
   for (const ob of obligations) {
     pushEvent(ob.date, { label: ob.name, amount: ob.amount, kind: ob.type });
