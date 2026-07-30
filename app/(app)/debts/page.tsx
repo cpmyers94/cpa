@@ -8,21 +8,46 @@ import { formatCurrency, sum } from "@/lib/calc/money";
 import { debtPayoff, monthlyBnplObligation } from "@/lib/calc/debt-plan";
 import { marginalApr, segmentsFor } from "@/lib/debts/segments";
 import { minimumPayment } from "@/lib/debts/minimum";
-import type { Debt, DebtSegment } from "@/lib/supabase/types";
+import { DEFAULT_UTILIZATION_TARGET } from "@/lib/debts/utilization";
+import { paychecksPerMonth, recommendSnowball, evaluate } from "@/lib/calc/debt-plan";
+import type {
+  Bill,
+  Debt,
+  DebtSegment,
+  Expense,
+  IncomeSource,
+  PaycheckDeduction,
+  PlanSettings,
+  SavingsGoal,
+} from "@/lib/supabase/types";
 import { DebtForm } from "./debt-form";
 import { DebtCard } from "./debt-card";
+import { UtilizationPanel } from "./utilization-panel";
 
 export default function DebtsPage() {
   const { supabase, user, canEdit } = useAuth();
 
   const load = useCallback(async () => {
-    const [debtsRes, segmentsRes] = await Promise.all([
-      supabase.from("debts").select("*").order("created_at"),
-      supabase.from("debt_segments").select("*"),
-    ]);
+    const [debtsRes, segmentsRes, settingsRes, sourcesRes, deductionsRes, billsRes, expensesRes, goalsRes] =
+      await Promise.all([
+        supabase.from("debts").select("*").order("created_at"),
+        supabase.from("debt_segments").select("*"),
+        supabase.from("plan_settings").select("*").limit(1),
+        supabase.from("income_sources").select("*").eq("active", true),
+        supabase.from("paycheck_deductions").select("*"),
+        supabase.from("bills").select("*").eq("active", true),
+        supabase.from("expenses").select("*").eq("active", true),
+        supabase.from("savings_goals").select("*"),
+      ]);
     return {
       debts: (debtsRes.data ?? []) as Debt[],
       segments: (segmentsRes.data ?? []) as DebtSegment[],
+      settings: ((settingsRes.data ?? [])[0] as PlanSettings | undefined) ?? null,
+      sources: (sourcesRes.data ?? []) as IncomeSource[],
+      deductions: (deductionsRes.data ?? []) as PaycheckDeduction[],
+      bills: (billsRes.data ?? []) as Bill[],
+      expenses: (expensesRes.data ?? []) as Expense[],
+      goals: (goalsRes.data ?? []) as SavingsGoal[],
     };
   }, [supabase]);
 
@@ -31,7 +56,15 @@ export default function DebtsPage() {
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
-  const { debts, segments } = data;
+  const { debts, segments, settings, sources, deductions, bills, expenses, goals } = data;
+
+  // What a paycheck can realistically put toward debt beyond the minimums —
+  // the same safe figure the plan recommends, so the utilization timeline
+  // isn't paced by a number that doesn't exist in the budget.
+  const evaluation = evaluate(sources, deductions, bills, expenses, goals, debts, [], segments);
+  const monthlyExtra = settings?.extra_override ?? recommendSnowball(evaluation).recommended;
+  const ppm = paychecksPerMonth(sources);
+  const perPaycheckBudget = ppm > 0 ? monthlyExtra / ppm : 0;
 
   const totalBalance = sum(debts.map((d) => debtPayoff(d, segments)));
   const totalMinimum =
@@ -48,6 +81,13 @@ export default function DebtsPage() {
       <Card title="Add a debt">
         <DebtForm onChanged={refresh} />
       </Card>
+
+      <UtilizationPanel
+        debts={debts}
+        segments={segments}
+        target={settings?.utilization_target ?? DEFAULT_UTILIZATION_TARGET}
+        perPaycheckBudget={perPaycheckBudget}
+      />
 
       {debts.length > 0 && (
         <Card title="Overview">

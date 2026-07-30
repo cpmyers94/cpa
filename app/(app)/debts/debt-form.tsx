@@ -291,6 +291,22 @@ export function DebtForm({
             </>
           )}
 
+          {type === "credit_card" && (
+            <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
+              Credit limit
+              <input
+                name="credit_limit"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="e.g. 4000"
+                defaultValue={editing?.credit_limit ?? undefined}
+                className={inputClass}
+              />
+              <span className="text-[11px] text-neutral-400">Unlocks utilization tracking.</span>
+            </label>
+          )}
+
           <label className="col-span-2 flex flex-col gap-1 text-xs text-neutral-500 sm:col-span-1">
             Minimum payment
             <select

@@ -12,6 +12,11 @@ import {
 import { toScheduledExtras } from "../debts/assignments";
 import { promoDeadlines, segmentsFor, SEGMENT_LABEL } from "../debts/segments";
 import { minimumAfterPromos, minimumPayment } from "../debts/minimum";
+import {
+  DEFAULT_UTILIZATION_TARGET,
+  utilizationPlan,
+  utilizationSummary,
+} from "../debts/utilization";
 import { buildDebtPayload, type DebtInput } from "../debts/payload";
 import type {
   Debt,
@@ -119,6 +124,12 @@ export function describeDebt(
     apr_source: debt.apr_manual ? "user" : "derived",
     minimum_payment: round2(minimumPayment(debt, segments)),
     minimum_rule: debt.minimum_rule,
+    ...(debt.credit_limit
+      ? {
+          credit_limit: debt.credit_limit,
+          utilization_percent: round2((payoff / debt.credit_limit) * 100),
+        }
+      : {}),
     ...(minimumAfterPromos(debt, own)
       ? {
           minimum_after_promo: minimumAfterPromos(debt, own),
@@ -276,7 +287,12 @@ export const debtTools: DebtToolDefinition[] = [
     inputSchema: {
       type: "object",
       properties: {
-        strategy: { type: "string", enum: ["snowball", "avalanche"] },
+        strategy: {
+          type: "string",
+          enum: ["snowball", "avalanche", "utilization"],
+          description:
+            "snowball = smallest balance first; avalanche = highest rate first; utilization = get each card under its utilization target, for credit-score purposes.",
+        },
         extra_per_month: {
           type: "number",
           description: "Extra beyond the minimums each month. Defaults to 0.",
@@ -382,7 +398,12 @@ async function listDebts(ctx: DebtToolContext) {
 
 async function getPayoffPlan(ctx: DebtToolContext, args: Args) {
   const [debts, segments] = await Promise.all([loadDebts(ctx), loadSegments(ctx)]);
-  const strategy: Strategy = args.strategy === "avalanche" ? "avalanche" : "snowball";
+  const strategy: Strategy =
+    args.strategy === "avalanche"
+      ? "avalanche"
+      : args.strategy === "utilization"
+        ? "utilization"
+        : "snowball";
   const extra = numOf(args, "extra_per_month") ?? 0;
   const active = debts.filter((d) => debtPayoff(d, segments) > 0);
   if (active.length === 0) return { strategy, message: "No debts — nothing to plan." };
@@ -401,11 +422,8 @@ async function getPayoffPlan(ctx: DebtToolContext, args: Args) {
     .from("income_sources")
     .select("*")
     .eq("active", true);
-  const deadlines = promoDeadlines(
-    active,
-    segments,
-    paychecksPerMonth((sources ?? []) as IncomeSource[])
-  );
+  const ppm = paychecksPerMonth((sources ?? []) as IncomeSource[]);
+  const deadlines = promoDeadlines(active, segments, ppm);
 
   return {
     strategy,
@@ -422,6 +440,41 @@ async function getPayoffPlan(ctx: DebtToolContext, args: Args) {
       frees_per_month: p.freed,
       snowball_after: p.snowballAfter,
     })),
+    utilization: (() => {
+      const summary = utilizationSummary(active, segments, DEFAULT_UTILIZATION_TARGET);
+      if (summary.cards.length === 0) return null;
+      const perPaycheck = ppm > 0 ? extra / ppm : 0;
+      return {
+        target_percent: summary.target,
+        aggregate_percent: summary.aggregatePercent,
+        total_balance: summary.totalBalance,
+        total_limit: summary.totalLimit,
+        to_get_every_card_under_target: summary.allCardsToTarget,
+        cards: summary.cards.map((c) => ({
+          name: c.name,
+          percent: c.percent,
+          balance: c.balance,
+          limit: c.limit,
+          over_limit: c.overLimit,
+          at_target: c.atTarget,
+          to_reach_target: c.toTarget,
+        })),
+        // Cheapest score win first: an over-limit card back under the line,
+        // then whole cards under the target, nearest first.
+        steps: utilizationPlan(
+          active,
+          segments,
+          DEFAULT_UTILIZATION_TARGET,
+          perPaycheck
+        ).map((s) => ({
+          card: s.name,
+          milestone: s.milestone,
+          cost: s.milestoneCost,
+          reached_by_paycheck: s.paychecks || null,
+          aggregate_after: s.aggregateAfter,
+        })),
+      };
+    })(),
     promo_deadlines: deadlines.map((d) => ({
       debt: d.debtName,
       balance: d.balance,

@@ -16,6 +16,7 @@ import {
   type Strategy,
 } from "@/lib/calc/debt-plan";
 import { toScheduledExtras } from "@/lib/debts/assignments";
+import { DEFAULT_UTILIZATION_TARGET } from "@/lib/debts/utilization";
 import type {
   Bill,
   Debt,
@@ -118,6 +119,7 @@ export default function PlanPage() {
   const recommendation = recommendSnowball(evaluation);
   const defaultExtra = recommendation.recommended;
   const strategy: Strategy = strategyLocal ?? data.settings?.strategy ?? "snowball";
+  const utilizationTarget = data.settings?.utilization_target ?? DEFAULT_UTILIZATION_TARGET;
   const savedOverride = extraTouched ? extraLocal : (data.settings?.extra_override ?? null);
   const extra = savedOverride ?? defaultExtra;
   const perPaycheckDivisor = paychecksPerMonth(sources);
@@ -130,7 +132,16 @@ export default function PlanPage() {
   // assuming the budget flows wherever the strategy would have sent it.
   const scheduled = toScheduledExtras(extras, today);
 
-  const plan = simulatePayoff(activeDebts, extra, strategy, true, scheduled, segments, today);
+  const plan = simulatePayoff(
+    activeDebts,
+    extra,
+    strategy,
+    true,
+    scheduled,
+    segments,
+    today,
+    utilizationTarget
+  );
   const minimumsOnly = simulatePayoff(activeDebts, 0, "avalanche", false, [], segments, today);
   const otherStrategy: Strategy = strategy === "avalanche" ? "snowball" : "avalanche";
   const alternative = simulatePayoff(
@@ -239,7 +250,7 @@ export default function PlanPage() {
           <label className="flex flex-col gap-1 text-xs text-neutral-500">
             Strategy
             <div className="flex overflow-hidden rounded-md border border-neutral-300 dark:border-neutral-700">
-              {(["avalanche", "snowball"] as const).map((s) => (
+              {(["avalanche", "snowball", "utilization"] as const).map((s) => (
                 <button
                   key={s}
                   onClick={() => {
@@ -252,7 +263,11 @@ export default function PlanPage() {
                       : "text-neutral-600 dark:text-neutral-400"
                   }`}
                 >
-                  {s === "avalanche" ? "Avalanche" : "Snowball"}
+                  {s === "avalanche"
+                    ? "Avalanche"
+                    : s === "snowball"
+                      ? "Snowball"
+                      : `${utilizationTarget}% mode`}
                 </button>
               ))}
             </div>
@@ -293,7 +308,9 @@ export default function PlanPage() {
         <p className="mt-2 text-xs text-neutral-500">
           {strategy === "avalanche"
             ? "Avalanche: highest interest rate first — the mathematically cheapest path. 0% BNPL plans wait their turn while high-interest debt burns."
-            : "Snowball: smallest balance first — including BNPL plans, which you can pay off early to free their installment sooner."}{" "}
+            : strategy === "snowball"
+              ? "Snowball: smallest balance first — including BNPL plans, which you can pay off early to free their installment sooner."
+              : `${utilizationTarget}% mode: get every card back under ${utilizationTarget}% of its limit, cheapest crossing first — an over-limit card comes first because that's a few dollars and stops an active harm. It targets your credit score rather than your interest bill, and once every card is under the line the plan goes back to avalanche.`}{" "}
           Every cleared debt rolls its payment into the snowball, keeping your total outlay at{" "}
           {formatCurrency(plan.budget)}/mo
           {extraPerPaycheck !== null &&

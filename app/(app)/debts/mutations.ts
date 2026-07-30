@@ -65,6 +65,7 @@ function debtPayload(formData: FormData) {
       "manual") as MinimumRule,
     minimum_percent: num(formData.get("minimum_percent")),
     minimum_floor: num(formData.get("minimum_floor")),
+    credit_limit: num(formData.get("credit_limit")),
     due_day: num(formData.get("due_day")),
     installment_amount: num(formData.get("installment_amount")),
     payments_remaining: num(formData.get("payments_remaining")),

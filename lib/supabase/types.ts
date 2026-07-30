@@ -120,6 +120,8 @@ export interface Debt extends Owned {
   minimum_percent: number | null;
   /** The smallest the issuer will bill. Null falls back to the default. */
   minimum_floor: number | null;
+  /** The card's credit line. Null for anything that isn't revolving. */
+  credit_limit: number | null;
   due_day: number | null;
   // BNPL-only fields: fixed installments on a fixed schedule.
   installment_amount: number | null;
@@ -174,8 +176,10 @@ export interface SnowballPayment extends Owned {
 export interface PlanSettings {
   household_id: string;
   user_id: string;
-  strategy: "avalanche" | "snowball";
+  strategy: "avalanche" | "snowball" | "utilization";
   extra_override: number | null;
+  /** Percent of each card's limit the utilization strategy aims to get under. */
+  utilization_target: number;
   updated_at: string;
 }
 

@@ -22,6 +22,8 @@ export interface DebtInput {
   minimum_rule?: MinimumRule | null;
   minimum_percent?: number | null;
   minimum_floor?: number | null;
+  /** The card's credit line, for utilization tracking. */
+  credit_limit?: number | null;
   due_day?: number | null;
   // BNPL
   installment_amount?: number | null;
@@ -48,6 +50,7 @@ export interface DebtColumns {
   minimum_rule: MinimumRule;
   minimum_percent: number | null;
   minimum_floor: number | null;
+  credit_limit: number | null;
   due_day: number | null;
   installment_amount: number | null;
   payments_remaining: number | null;
@@ -81,6 +84,7 @@ export function buildDebtPayload(input: DebtInput): DebtColumns {
       minimum_rule: "manual" as const,
       minimum_percent: null,
       minimum_floor: null,
+      credit_limit: null,
       due_day: null,
       installment_amount: installment,
       payments_remaining: remaining,
@@ -108,6 +112,10 @@ export function buildDebtPayload(input: DebtInput): DebtColumns {
       rule === "manual" ? null : Number(input.minimum_percent ?? DEFAULT_MINIMUM_PERCENT),
     minimum_floor:
       rule === "manual" ? null : Number(input.minimum_floor ?? DEFAULT_MINIMUM_FLOOR),
+    credit_limit:
+      input.credit_limit == null || Number(input.credit_limit) <= 0
+        ? null
+        : Number(input.credit_limit),
     due_day: input.due_day == null ? null : Number(input.due_day),
     installment_amount: null,
     payments_remaining: null,

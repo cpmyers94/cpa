@@ -17,6 +17,10 @@ import {
   type DebtPart,
 } from "../debts/segments";
 import { minimumFromParts, minimumPayment } from "../debts/minimum";
+import {
+  DEFAULT_UTILIZATION_TARGET,
+  utilizationOrder,
+} from "../debts/utilization";
 import { bnplPayoff } from "./bnpl";
 import { sum } from "./money";
 import { monthlyExpenses } from "./obligations";
@@ -311,7 +315,7 @@ export function recommendSnowball(evaluation: Evaluation): SnowballRecommendatio
 // monthly outlay stays constant while the amount attacking the target grows.
 // ---------------------------------------------------------------------------
 
-export type Strategy = "avalanche" | "snowball";
+export type Strategy = "avalanche" | "snowball" | "utilization";
 
 /**
  * Debts in the order the strategy attacks them — [0] is the current target,
@@ -322,8 +326,26 @@ export type Strategy = "avalanche" | "snowball";
 export function orderedSnowballTargets(
   debts: Debt[],
   strategy: Strategy,
-  segments: DebtSegment[] = []
+  segments: DebtSegment[] = [],
+  utilizationTarget: number = DEFAULT_UTILIZATION_TARGET
 ): { id: string; name: string; balance: number }[] {
+  if (strategy === "utilization") {
+    // Cards still over the target come first, cheapest crossing first. Once
+    // they're all under it this goal has nothing left to buy, so the rest of
+    // the debts fall back to chasing interest.
+    const over = utilizationOrder(debts, segments, utilizationTarget);
+    const byId = new Map(debts.map((d) => [d.id, d]));
+    const rest = debts.filter((d) => !over.some((c) => c.debtId === d.id));
+    return [
+      ...over.map((c) => ({
+        id: c.debtId,
+        name: byId.get(c.debtId)?.name ?? c.name,
+        balance: c.balance,
+      })),
+      ...orderedSnowballTargets(rest, "avalanche", segments),
+    ];
+  }
+
   return debts
     .map((d) => ({
       id: d.id,
@@ -391,6 +413,8 @@ interface SimItem {
     Debt,
     "minimum_rule" | "minimum_percent" | "minimum_floor" | "minimum_payment"
   >;
+  /** The card's credit line, when it has one. Only utilization targeting uses it. */
+  limit: number | null;
   paidOffMonth: number;
 }
 
@@ -410,7 +434,8 @@ export function simulatePayoff(
   rollover = true,
   scheduled: ScheduledExtra[] = [],
   segments: DebtSegment[] = [],
-  today = new Date()
+  today = new Date(),
+  utilizationTarget: number = DEFAULT_UTILIZATION_TARGET
 ): PlanResult {
   const items: SimItem[] = [
     ...debts
@@ -426,6 +451,7 @@ export function simulatePayoff(
           minimum_floor: d.minimum_floor,
           minimum_payment: d.minimum_payment,
         },
+        limit: d.credit_limit,
         paidOffMonth: 0,
       })),
     ...debts
@@ -455,6 +481,7 @@ export function simulatePayoff(
           minimum_floor: null,
           minimum_payment: bnplPaymentsPerMonth(d) * (d.installment_amount ?? 0),
         },
+        limit: null,
         paidOffMonth: 0,
       })),
   ];
@@ -474,9 +501,42 @@ export function simulatePayoff(
   // blended average.
   const topRate = (d: SimItem, on: Date) =>
     Math.max(0, ...d.parts.filter((p) => p.balance > 0).map((p) => aprOn(p, on)));
+  // How far above the utilization target a card still is, in dollars.
+  const gapToTarget = (d: SimItem) =>
+    d.limit == null
+      ? 0
+      : Math.max(balanceOf(d) - (d.limit * utilizationTarget) / 100, 0);
+  const overBy = (d: SimItem) =>
+    d.limit == null ? 0 : Math.max(balanceOf(d) - d.limit, 0);
+  /**
+   * The next milestone worth buying on this card. Getting back under the limit
+   * is separate from — and far cheaper than — getting to the target, so it's
+   * bought first and priced on its own.
+   */
+  const nextMilestone = (d: SimItem) => (overBy(d) > 0.005 ? overBy(d) : gapToTarget(d));
+
   const pickTarget = (on: Date) => {
     const candidates = active();
     if (candidates.length === 0) return null;
+
+    if (strategy === "utilization") {
+      // Cards still over target, cheapest crossing first — over-limit ones
+      // ahead of the rest. When every card is under target this goal is done,
+      // so the remaining debts fall through to avalanche.
+      const over = candidates.filter((d) => gapToTarget(d) > 0.005);
+      if (over.length > 0) {
+        return over.sort((a, b) => {
+          const aOver = overBy(a) > 0.005;
+          const bOver = overBy(b) > 0.005;
+          if (aOver !== bOver) return aOver ? -1 : 1;
+          return nextMilestone(a) - nextMilestone(b);
+        })[0];
+      }
+      return candidates.sort(
+        (a, b) => topRate(b, on) - topRate(a, on) || balanceOf(a) - balanceOf(b)
+      )[0];
+    }
+
     return candidates.sort((a, b) =>
       strategy === "avalanche"
         ? topRate(b, on) - topRate(a, on) || balanceOf(a) - balanceOf(b)
@@ -542,12 +602,22 @@ export function simulatePayoff(
     if (rollover) {
       let pool = Math.max(monthlyBudget - paidThisMonth, 0);
       let target = pickTarget(on);
-      while (target && pool > 0.005) {
-        const payment = Math.min(pool, balanceOf(target));
+      let guard = 0;
+      while (target && pool > 0.005 && guard++ < items.length * 2 + 2) {
+        // Utilization targeting stops at the threshold rather than paying the
+        // card off — crossing 30% is the whole win, and the next dollar buys
+        // more on the next card still above it.
+        const ceiling =
+          strategy === "utilization" && nextMilestone(target) > 0.005
+            ? nextMilestone(target)
+            : balanceOf(target);
+        const payment = Math.min(pool, ceiling);
         applyToParts(target.parts, payment, "costliest_first", on);
         pool -= payment;
         settle(target, month);
-        if (balanceOf(target) <= 0.005) target = pickTarget(on);
+        const next = pickTarget(on);
+        if (next === target && payment <= 0.005) break;
+        target = next;
       }
     }
   }
