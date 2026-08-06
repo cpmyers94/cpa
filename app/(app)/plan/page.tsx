@@ -310,7 +310,7 @@ export default function PlanPage() {
             ? "Avalanche: highest interest rate first — the mathematically cheapest path. 0% BNPL plans wait their turn while high-interest debt burns."
             : strategy === "snowball"
               ? "Snowball: smallest balance first — including BNPL plans, which you can pay off early to free their installment sooner."
-              : `${utilizationTarget}% mode: get every card back under ${utilizationTarget}% of its limit, cheapest crossing first — a card's dollar gap to the target competes with a full payoff on anything else (BNPL, personal loans), so a cheap small debt can jump ahead of an expensive card's crossing. An over-limit card still comes first regardless, because that's a few dollars and stops an active harm. It targets your credit score rather than your interest bill, and once every card is at target the plan goes back to avalanche.`}{" "}
+              : `${utilizationTarget}% mode: snowball by what the next milestone costs, cheapest first — for a card that's the gap down to ${utilizationTarget}% of its limit, for everything else a full payoff. Crossing ${utilizationTarget}% buys the score win early without paying the whole card off first, then the leftover goes back in the queue at its balance and gets cleared like any other debt, so nothing is left parked on its minimum. An over-limit card comes first regardless — that's a few dollars and stops an active harm.`}{" "}
           Every cleared debt rolls its payment into the snowball, keeping your total outlay at{" "}
           {formatCurrency(plan.budget)}/mo
           {extraPerPaycheck !== null &&
