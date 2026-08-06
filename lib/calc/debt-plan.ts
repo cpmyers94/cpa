@@ -330,18 +330,35 @@ export function orderedSnowballTargets(
   utilizationTarget: number = DEFAULT_UTILIZATION_TARGET
 ): { id: string; name: string; balance: number }[] {
   if (strategy === "utilization") {
-    // Cards still over the target come first, cheapest crossing first. Once
-    // they're all under it this goal has nothing left to buy, so the rest of
-    // the debts fall back to chasing interest.
-    const over = utilizationOrder(debts, segments, utilizationTarget);
-    const byId = new Map(debts.map((d) => [d.id, d]));
-    const rest = debts.filter((d) => !over.some((c) => c.debtId === d.id));
-    return [
-      ...over.map((c) => ({
+    // Every debt's next utilization milestone, cheapest first: a card's
+    // dollar gap back under its limit or to the target, or — for anything
+    // without a credit line (BNPL, personal loans) — its full remaining
+    // balance, since a full payoff is the only milestone those debts have for
+    // this goal. Once every card is at target and nothing else has a
+    // milestone left, the rest fall back to chasing interest.
+    const isCard = (d: Debt) =>
+      d.type !== "bnpl" && d.credit_limit != null && d.credit_limit > 0;
+    const cardTargets = utilizationOrder(debts, segments, utilizationTarget);
+    const milestones = [
+      ...cardTargets.map((c) => ({
         id: c.debtId,
-        name: byId.get(c.debtId)?.name ?? c.name,
+        name: c.name,
         balance: c.balance,
+        cost: c.milestoneCost,
+        over: c.overLimit,
       })),
+      ...debts
+        .filter((d) => !isCard(d))
+        .map((d) => {
+          const balance = debtPayoff(d, segments);
+          return { id: d.id, name: d.name, balance, cost: balance, over: false };
+        }),
+    ].filter((c) => c.balance > 0);
+    milestones.sort((a, b) => (a.over !== b.over ? (a.over ? -1 : 1) : a.cost - b.cost));
+    const covered = new Set(milestones.map((c) => c.id));
+    const rest = debts.filter((d) => !covered.has(d.id));
+    return [
+      ...milestones.map(({ id, name, balance }) => ({ id, name, balance })),
       ...orderedSnowballTargets(rest, "avalanche", segments),
     ];
   }
@@ -520,17 +537,30 @@ export function simulatePayoff(
     if (candidates.length === 0) return null;
 
     if (strategy === "utilization") {
-      // Cards still over target, cheapest crossing first — over-limit ones
-      // ahead of the rest. When every card is under target this goal is done,
-      // so the remaining debts fall through to avalanche.
-      const over = candidates.filter((d) => gapToTarget(d) > 0.005);
-      if (over.length > 0) {
-        return over.sort((a, b) => {
-          const aOver = overBy(a) > 0.005;
-          const bOver = overBy(b) > 0.005;
+      // Every debt's next utilization milestone, cheapest first: a card's
+      // dollar gap back under its limit or to the target, or — for anything
+      // without a credit line (BNPL, personal loans) — its full remaining
+      // balance, since a full payoff is the only milestone those debts have
+      // for this goal. Over-limit cards still come first regardless of cost:
+      // that's active harm (fees, a possible penalty rate) and cheap to fix.
+      // Once every card is at target and nothing else has a milestone left,
+      // the plan falls back to chasing interest.
+      const milestoneCost = (d: SimItem): number | null => {
+        if (d.limit == null) return balanceOf(d);
+        if (overBy(d) > 0.005) return overBy(d);
+        const gap = gapToTarget(d);
+        return gap > 0.005 ? gap : null;
+      };
+      const withMilestone = candidates
+        .map((d) => ({ d, cost: milestoneCost(d) }))
+        .filter((c): c is { d: SimItem; cost: number } => c.cost !== null);
+      if (withMilestone.length > 0) {
+        return withMilestone.sort((a, b) => {
+          const aOver = overBy(a.d) > 0.005;
+          const bOver = overBy(b.d) > 0.005;
           if (aOver !== bOver) return aOver ? -1 : 1;
-          return nextMilestone(a) - nextMilestone(b);
-        })[0];
+          return a.cost - b.cost;
+        })[0].d;
       }
       return candidates.sort(
         (a, b) => topRate(b, on) - topRate(a, on) || balanceOf(a) - balanceOf(b)
