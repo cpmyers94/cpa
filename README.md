@@ -103,6 +103,23 @@ Every row carries a `user_id` (the author) and a `household_id` (the shared
 budget it belongs to); visibility follows the household, and joining/leaving
 moves your authored rows with you.
 
+## MCP servers
+
+`.mcp.json` configures the [Alpaca MCP server](https://github.com/alpacahq/alpaca-mcp-server)
+(via `uvx alpaca-mcp-server`) for Claude Code sessions in this repo. It's a
+development tool, not an app dependency — the app itself has no brokerage
+integration. To use it, export your own Alpaca API credentials before
+starting Claude Code:
+
+```bash
+export ALPACA_API_KEY=your_alpaca_api_key
+export ALPACA_SECRET_KEY=your_alpaca_secret_key
+```
+
+`.mcp.json` references these by name (`${ALPACA_API_KEY}` /
+`${ALPACA_SECRET_KEY}`) rather than storing the values, so no secrets are
+committed.
+
 ## Project structure
 
 - `app/(app)/` — the authenticated pages (dashboard, paychecks, bills,
