@@ -8,11 +8,13 @@ import { Card, ghostButtonClass } from "@/components/card";
 import { formatCurrency, formatDate } from "@/lib/calc/money";
 import { getPaycheckOccurrences } from "@/lib/calc/schedule";
 import { withoutClearedDebts } from "@/lib/debts/assignments";
+import { withoutEarlyPaidOccurrences } from "@/lib/debts/early-payments";
 import { getObligations, type Obligation } from "@/lib/calc/obligations";
 import { pickPaycheckForDueDate } from "@/lib/calc/allocate";
 import type {
   Bill,
   Debt,
+  DebtPayment,
   DebtSegment,
   Expense,
   IncomeSource,
@@ -51,6 +53,7 @@ export default function BillsPage() {
       allocationsRes,
       extrasRes,
       segmentsRes,
+      paymentsRes,
     ] = await Promise.all([
       supabase.from("bills").select("*").eq("active", true).order("created_at"),
       supabase.from("debts").select("*"),
@@ -59,6 +62,7 @@ export default function BillsPage() {
       supabase.from("bill_allocations").select("*"),
       supabase.from("snowball_payments").select("*"),
       supabase.from("debt_segments").select("*"),
+      supabase.from("debt_payments").select("*"),
     ]);
     return {
       bills: (billsRes.data ?? []) as Bill[],
@@ -68,6 +72,7 @@ export default function BillsPage() {
       allocations: (allocationsRes.data ?? []) as ObligationAllocation[],
       extras: (extrasRes.data ?? []) as SnowballPayment[],
       segments: (segmentsRes.data ?? []) as DebtSegment[],
+      payments: (paymentsRes.data ?? []) as DebtPayment[],
     };
   }, [supabase]);
 
@@ -76,7 +81,7 @@ export default function BillsPage() {
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
-  const { bills, debts, expenses, sources, allocations, extras, segments } = data;
+  const { bills, debts, expenses, sources, allocations, extras, segments, payments } = data;
 
   const today = new Date();
   const rangeEnd = addDays(today, WINDOW_DAYS);
@@ -89,12 +94,19 @@ export default function BillsPage() {
     }))
   );
 
-  // A debt an assigned payment pays off shouldn't still be offered for assignment.
-  const obligations = withoutClearedDebts(
-    getObligations(bills, debts, expenses, today, rangeEnd, segments),
+  // A debt an assigned payment pays off shouldn't still be offered for
+  // assignment, and neither should a cycle already paid ahead of schedule.
+  const obligations = withoutEarlyPaidOccurrences(
+    withoutClearedDebts(
+      getObligations(bills, debts, expenses, today, rangeEnd, segments),
+      debts,
+      extras,
+      segments
+    ),
     debts,
-    extras,
-    segments
+    payments,
+    segments,
+    today
   );
 
   const findAllocation = (ob: Obligation) => {

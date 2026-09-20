@@ -17,10 +17,12 @@ import { Card } from "@/components/card";
 import { formatCurrency } from "@/lib/calc/money";
 import { getPaycheckOccurrences } from "@/lib/calc/schedule";
 import { withoutClearedDebts } from "@/lib/debts/assignments";
+import { withoutEarlyPaidOccurrences } from "@/lib/debts/early-payments";
 import { getObligations } from "@/lib/calc/obligations";
 import type {
   Bill,
   Debt,
+  DebtPayment,
   DebtSegment,
   Expense,
   IncomeSource,
@@ -43,7 +45,7 @@ export default function CalendarPage() {
   const [monthStart, setMonthStart] = useState(() => startOfMonth(new Date()));
 
   const load = useCallback(async () => {
-    const [sourcesRes, billsRes, debtsRes, expensesRes, extrasRes, segmentsRes] =
+    const [sourcesRes, billsRes, debtsRes, expensesRes, extrasRes, segmentsRes, paymentsRes] =
       await Promise.all([
       supabase.from("income_sources").select("*").eq("active", true),
       supabase.from("bills").select("*").eq("active", true),
@@ -51,6 +53,7 @@ export default function CalendarPage() {
       supabase.from("expenses").select("*").eq("active", true),
       supabase.from("snowball_payments").select("*"),
       supabase.from("debt_segments").select("*"),
+      supabase.from("debt_payments").select("*"),
     ]);
     return {
       sources: (sourcesRes.data ?? []) as IncomeSource[],
@@ -59,6 +62,7 @@ export default function CalendarPage() {
       expenses: (expensesRes.data ?? []) as Expense[],
       extras: (extrasRes.data ?? []) as SnowballPayment[],
       segments: (segmentsRes.data ?? []) as DebtSegment[],
+      payments: (paymentsRes.data ?? []) as DebtPayment[],
     };
   }, [supabase]);
 
@@ -67,7 +71,7 @@ export default function CalendarPage() {
   if (!data) {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
-  const { sources, bills, debts, expenses, extras, segments } = data;
+  const { sources, bills, debts, expenses, extras, segments, payments } = data;
 
   const monthEnd = endOfMonth(monthStart);
   const gridStart = startOfWeek(monthStart);
@@ -89,10 +93,15 @@ export default function CalendarPage() {
       });
     }
   }
-  const obligations = withoutClearedDebts(
-    getObligations(bills, debts, expenses, gridStart, gridEnd, segments),
+  const obligations = withoutEarlyPaidOccurrences(
+    withoutClearedDebts(
+      getObligations(bills, debts, expenses, gridStart, gridEnd, segments),
+      debts,
+      extras,
+      segments
+    ),
     debts,
-    extras,
+    payments,
     segments
   );
   for (const ob of obligations) {

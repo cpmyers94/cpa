@@ -12,9 +12,11 @@ import { debtPayoff, paychecksPerMonth } from "@/lib/calc/debt-plan";
 import { promoDeadlines } from "@/lib/debts/segments";
 import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
 import { toAssignedPayments, withoutClearedDebts } from "@/lib/debts/assignments";
+import { withoutEarlyPaidOccurrences } from "@/lib/debts/early-payments";
 import type {
   Bill,
   Debt,
+  DebtPayment,
   DebtSegment,
   Expense,
   IncomeSource,
@@ -37,6 +39,7 @@ type DashboardData = {
   debts: Debt[];
   segments: DebtSegment[];
   payments: SnowballPayment[];
+  debtPayments: DebtPayment[];
 };
 
 function allocationColumn(type: ObligationType): "bill_id" | "debt_id" | "expense_id" {
@@ -57,6 +60,7 @@ export default function DashboardPage() {
       debts,
       segments,
       payments,
+      debtPayments,
     ] = await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
@@ -67,6 +71,7 @@ export default function DashboardPage() {
         supabase.from("debts").select("*"),
         supabase.from("debt_segments").select("*"),
         supabase.from("snowball_payments").select("*"),
+        supabase.from("debt_payments").select("*"),
       ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
@@ -78,6 +83,7 @@ export default function DashboardPage() {
       debts: (debts.data ?? []) as Debt[],
       segments: (segments.data ?? []) as DebtSegment[],
       payments: (payments.data ?? []) as SnowballPayment[],
+      debtPayments: (debtPayments.data ?? []) as DebtPayment[],
     };
   }, [supabase]);
 
@@ -87,8 +93,18 @@ export default function DashboardPage() {
     return <p className="text-sm text-neutral-400">Loading…</p>;
   }
 
-  const { sources, deductions, bills, expenses, allocations, goals, debts, segments, payments } =
-    data;
+  const {
+    sources,
+    deductions,
+    bills,
+    expenses,
+    allocations,
+    goals,
+    debts,
+    segments,
+    payments,
+    debtPayments,
+  } = data;
 
   const today = new Date();
   const rangeEnd = addDays(today, WINDOW_DAYS);
@@ -106,19 +122,26 @@ export default function DashboardPage() {
     }));
   // Only extra payments actually assigned to a paycheck reduce its free-to-spend.
   const assignedSnowball = toAssignedPayments(payments, debts);
-  // Debts an assigned payment pays off stop generating obligations afterwards.
-  const planObligations = withoutClearedDebts(
-    getObligations(
-      bills,
+  // Debts an assigned payment pays off stop generating obligations afterwards,
+  // and a cycle already paid ahead of its due date stops billing again.
+  const planObligations = withoutEarlyPaidOccurrences(
+    withoutClearedDebts(
+      getObligations(
+        bills,
+        debts,
+        expenses,
+        addDays(today, -7),
+        addDays(today, WINDOW_DAYS + 30),
+        segments
+      ),
       debts,
-      expenses,
-      addDays(today, -7),
-      addDays(today, WINDOW_DAYS + 30),
+      payments,
       segments
     ),
     debts,
-    payments,
-    segments
+    debtPayments,
+    segments,
+    today
   );
   const upcomingPaychecks = buildPaycheckPlan(
     sources,
@@ -133,11 +156,17 @@ export default function DashboardPage() {
     assignedSnowball
   );
 
-  const upcomingObligations = withoutClearedDebts(
-    getObligations(bills, debts, expenses, today, rangeEnd, segments),
+  const upcomingObligations = withoutEarlyPaidOccurrences(
+    withoutClearedDebts(
+      getObligations(bills, debts, expenses, today, rangeEnd, segments),
+      debts,
+      payments,
+      segments
+    ),
     debts,
-    payments,
-    segments
+    debtPayments,
+    segments,
+    today
   );
 
   const totalIncoming = sum(upcomingPaychecks.map((p) => p.net));

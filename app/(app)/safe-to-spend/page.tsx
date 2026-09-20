@@ -17,10 +17,12 @@ import {
 import { buildPaycheckPlan } from "@/lib/calc/paycheck-plan";
 import { suggestSnowballPayments } from "@/lib/calc/snowball-assign";
 import { toAssignedPayments, withoutClearedDebts } from "@/lib/debts/assignments";
+import { withoutEarlyPaidOccurrences } from "@/lib/debts/early-payments";
 import { minimumPayment } from "@/lib/debts/minimum";
 import type {
   Bill,
   Debt,
+  DebtPayment,
   DebtSegment,
   Expense,
   IncomeSource,
@@ -56,6 +58,7 @@ export default function SafeToSpendPage() {
       settings,
       payments,
       segments,
+      debtPayments,
     ] = await Promise.all([
         supabase.from("income_sources").select("*").eq("active", true),
         supabase.from("paycheck_deductions").select("*"),
@@ -67,6 +70,7 @@ export default function SafeToSpendPage() {
         supabase.from("plan_settings").select("*").limit(1),
         supabase.from("snowball_payments").select("*"),
         supabase.from("debt_segments").select("*"),
+        supabase.from("debt_payments").select("*"),
       ]);
     return {
       sources: (sources.data ?? []) as IncomeSource[],
@@ -79,6 +83,7 @@ export default function SafeToSpendPage() {
       settings: ((settings.data ?? [])[0] as PlanSettings | undefined) ?? null,
       payments: (payments.data ?? []) as SnowballPayment[],
       segments: (segments.data ?? []) as DebtSegment[],
+      debtPayments: (debtPayments.data ?? []) as DebtPayment[],
     };
   }, [supabase]);
 
@@ -99,6 +104,7 @@ export default function SafeToSpendPage() {
     settings,
     payments,
     segments,
+    debtPayments,
   } = data;
 
   const today = new Date();
@@ -115,7 +121,14 @@ export default function SafeToSpendPage() {
 
   // A debt an assigned payment pays off stops costing anything after that
   // payday — drop its later installments so the payoff actually shows up.
-  const obligations = withoutClearedDebts(allObligations, debts, payments, segments);
+  // A cycle already paid ahead of its due date stops billing again too.
+  const obligations = withoutEarlyPaidOccurrences(
+    withoutClearedDebts(allObligations, debts, payments, segments),
+    debts,
+    debtPayments,
+    segments,
+    today
+  );
 
   const monthlyBudget = monthlyBudgetExpenses(expenses);
 
